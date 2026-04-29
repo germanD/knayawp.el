@@ -1,7 +1,7 @@
 ;;; knayawp.el --- Project-oriented window layouts for Emacs -*- lexical-binding: t; -*-
 
 ;; Author: Germán Carrillo
-;; Version: 0.1.1
+;; Version: 0.1.2
 ;; Package-Requires: ((emacs "29.1") (magit "3.0"))
 ;; Keywords: frames, convenience
 ;; URL: https://github.com/knayawp/knayawp.el
@@ -45,6 +45,8 @@
 (defvar eat-buffer-name)
 (declare-function eat "eat")
 (declare-function magit-status-setup-buffer "magit-status")
+(defvar magit-display-buffer-function)
+(declare-function magit-display-buffer-traditional "magit-mode")
 
 ;;;; Customization group
 
@@ -71,6 +73,13 @@
                  (const :tag "eat (pure Elisp)" eat))
   :group 'knayawp)
 
+(defcustom knayawp-magit-commit-in-editor-flag t
+  "Non-nil means show COMMIT_EDITMSG in the editor pane.
+When nil, commit message buffers follow default `display-buffer'
+behavior."
+  :type 'boolean
+  :group 'knayawp)
+
 (defcustom knayawp-panels
   '((magit  :slot -1 :height 0.33)
     (vterm  :slot  0 :height 0.33)
@@ -92,6 +101,13 @@ Each BUFFER-ALIST maps panel types to their buffers.")
 
 (defvar knayawp--zoomed-panel nil
   "Panel type symbol currently zoomed, or nil if not zoomed.")
+
+(defvar knayawp--magit-saved-display-fn nil
+  "Saved value of `magit-display-buffer-function'.")
+
+(defvar knayawp--commit-display-entry nil
+  "The `display-buffer-alist' entry for COMMIT_EDITMSG routing.
+Stored so it can be cleanly removed on teardown.")
 
 ;;;; Project detection
 
@@ -238,6 +254,67 @@ PROJECT-ROOT is the project directory, PROJECT-NAME its short name."
               project-root project-name))
     (_ (user-error "Unknown panel type: %s" type))))
 
+;;;; Magit integration
+
+(defun knayawp--magit-display-buffer (buffer)
+  "Display magit BUFFER in the knayawp magit side window.
+If the magit side window does not exist, fall back to the
+previously active `magit-display-buffer-function'."
+  (let* ((magit-spec (assq 'magit knayawp-panels))
+         (magit-win (when magit-spec
+                      (knayawp--side-window-for-slot
+                       (knayawp--panel-slot magit-spec)))))
+    (if (not magit-win)
+        ;; No layout active — use saved function or traditional
+        (let ((fallback (or knayawp--magit-saved-display-fn
+                            #'magit-display-buffer-traditional)))
+          (funcall fallback buffer))
+      ;; Display in the magit side window via display-buffer-in-side-window
+      ;; so quit-restore is set up correctly for magit's `q' binding.
+      (display-buffer-in-side-window
+       buffer
+       `((side . right)
+         (slot . ,(knayawp--panel-slot magit-spec))
+         (window-width . ,knayawp-right-width)
+         (preserve-size . (t . nil))
+         (window-parameters
+          . ((no-delete-other-windows . t)
+             (no-other-window . t))))))))
+
+(defun knayawp--setup-magit-integration ()
+  "Install magit buffer display integration.
+Save the current `magit-display-buffer-function' and replace it
+with `knayawp--magit-display-buffer'.  If
+`knayawp-magit-commit-in-editor-flag' is non-nil, add a
+`display-buffer-alist' entry to route COMMIT_EDITMSG to the
+editor pane."
+  (when (require 'magit nil t)
+    (setq knayawp--magit-saved-display-fn
+          magit-display-buffer-function)
+    (setq magit-display-buffer-function
+          #'knayawp--magit-display-buffer)
+    (when knayawp-magit-commit-in-editor-flag
+      (setq knayawp--commit-display-entry
+            '("COMMIT_EDITMSG"
+              (display-buffer-reuse-window
+               display-buffer-use-some-window)
+              (reusable-frames . visible)
+              (inhibit-same-window . t)))
+      (push knayawp--commit-display-entry display-buffer-alist))))
+
+(defun knayawp--teardown-magit-integration ()
+  "Remove magit buffer display integration.
+Restore the saved `magit-display-buffer-function' and remove the
+COMMIT_EDITMSG `display-buffer-alist' entry."
+  (when knayawp--magit-saved-display-fn
+    (setq magit-display-buffer-function
+          knayawp--magit-saved-display-fn)
+    (setq knayawp--magit-saved-display-fn nil))
+  (when knayawp--commit-display-entry
+    (setq display-buffer-alist
+          (delq knayawp--commit-display-entry display-buffer-alist))
+    (setq knayawp--commit-display-entry nil)))
+
 ;;;; Layout engine
 
 ;;;###autoload
@@ -275,6 +352,8 @@ left and is selected when done."
     (setf (alist-get project-root knayawp--active-layouts
                      nil nil #'equal)
           (nreverse buffer-alist))
+    ;; Install magit integration
+    (knayawp--setup-magit-integration)
     ;; Select the main editor window
     (knayawp--select-editor-window)))
 
@@ -282,6 +361,7 @@ left and is selected when done."
   "Remove the knayawp control pane from the current frame.
 Delete all side windows but do not kill their buffers."
   (interactive)
+  (knayawp--teardown-magit-integration)
   (let ((side-windows (knayawp--side-windows)))
     (dolist (win side-windows)
       (delete-window win))))
