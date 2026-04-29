@@ -162,7 +162,21 @@
   (should (eq 'knayawp-layout-setup
               (lookup-key knayawp-command-map "l")))
   (should (eq 'knayawp-layout-teardown
-              (lookup-key knayawp-command-map "q"))))
+              (lookup-key knayawp-command-map "q")))
+  (should (eq 'knayawp-next-panel
+              (lookup-key knayawp-command-map "n")))
+  (should (eq 'knayawp-prev-panel
+              (lookup-key knayawp-command-map "p")))
+  (should (eq 'knayawp-zoom-panel
+              (lookup-key knayawp-command-map "z")))
+  (should (eq 'knayawp-select-editor
+              (lookup-key knayawp-command-map "0")))
+  (should (eq 'knayawp-toggle-panels
+              (lookup-key knayawp-command-map "s")))
+  ;; 1/2/3 are lambdas, just verify they're bound
+  (should (lookup-key knayawp-command-map "1"))
+  (should (lookup-key knayawp-command-map "2"))
+  (should (lookup-key knayawp-command-map "3")))
 
 ;;;; Buffer reuse
 
@@ -189,6 +203,34 @@
           (should (eq buf (knayawp--get-or-create-claude-buffer
                            "/tmp/testproj" "testproj"))))
       (when buf (kill-buffer buf)))))
+
+;;;; Panel navigation helpers
+
+(ert-deftest knayawp-test-panel-spec-at-index ()
+  "Return correct panel spec by index."
+  (let ((knayawp-panels '((magit :slot -1 :height 0.33)
+                           (vterm :slot 0 :height 0.33)
+                           (claude :slot 1 :height 0.34))))
+    (should (eq 'magit (car (knayawp--panel-spec-at-index 0))))
+    (should (eq 'vterm (car (knayawp--panel-spec-at-index 1))))
+    (should (eq 'claude (car (knayawp--panel-spec-at-index 2))))
+    (should-not (knayawp--panel-spec-at-index 3))))
+
+(ert-deftest knayawp-test-select-panel-bad-index ()
+  "Selecting a non-existent panel signals user-error."
+  (should-error (knayawp-select-panel 99)
+                :type 'user-error))
+
+(ert-deftest knayawp-test-zoom-not-in-panel ()
+  "Zooming when not in a side window signals user-error."
+  (let ((knayawp--zoomed-panel nil))
+    (should-error (knayawp-zoom-panel)
+                  :type 'user-error)))
+
+(ert-deftest knayawp-test-current-panel-index-not-side ()
+  "Return nil when selected window is not a side window."
+  ;; In batch mode, the selected window is never a side window
+  (should-not (knayawp--current-panel-index)))
 
 ;;;; No project signals error
 

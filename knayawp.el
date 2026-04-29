@@ -1,7 +1,7 @@
 ;;; knayawp.el --- Project-oriented window layouts for Emacs -*- lexical-binding: t; -*-
 
 ;; Author: Germán Carrillo
-;; Version: 0.1.0
+;; Version: 0.1.1
 ;; Package-Requires: ((emacs "29.1") (magit "3.0"))
 ;; Keywords: frames, convenience
 ;; URL: https://github.com/knayawp/knayawp.el
@@ -89,6 +89,9 @@ contains :slot (integer for side window ordering) and :height
 (defvar knayawp--active-layouts nil
   "Alist of (PROJECT-ROOT . BUFFER-ALIST) for active layouts.
 Each BUFFER-ALIST maps panel types to their buffers.")
+
+(defvar knayawp--zoomed-panel nil
+  "Panel type symbol currently zoomed, or nil if not zoomed.")
 
 ;;;; Project detection
 
@@ -302,12 +305,141 @@ Delete all side windows but do not kill their buffers."
     (when editor-win
       (select-window editor-win))))
 
+;;;; Panel navigation helpers
+
+(defun knayawp--side-window-for-slot (slot)
+  "Return the side window occupying SLOT, or nil."
+  (seq-find
+   (lambda (win)
+     (eq slot (window-parameter win 'window-slot)))
+   (knayawp--side-windows)))
+
+(defun knayawp--panel-spec-at-index (n)
+  "Return the Nth panel spec from `knayawp-panels' (0-based)."
+  (nth n knayawp-panels))
+
+(defun knayawp--current-panel-index ()
+  "Return the index into `knayawp-panels' for the selected window.
+Return nil if the selected window is not a side window."
+  (let ((slot (window-parameter (selected-window) 'window-slot)))
+    (when slot
+      (cl-position slot knayawp-panels
+                   :test (lambda (s spec)
+                           (eq s (knayawp--panel-slot spec)))))))
+
+;;;; Panel navigation commands
+
+(defun knayawp-select-panel (n)
+  "Select the Nth panel (1-indexed).
+Panel 1 is the first entry in `knayawp-panels' (magit by default),
+panel 2 is the second (vterm), panel 3 is the third (claude)."
+  (interactive "nPanel number (1-3): ")
+  (let* ((idx (1- n))
+         (spec (knayawp--panel-spec-at-index idx)))
+    (unless spec
+      (user-error "No panel %d (only %d panels configured)"
+                  n (length knayawp-panels)))
+    (let ((win (knayawp--side-window-for-slot
+                (knayawp--panel-slot spec))))
+      (unless win
+        (user-error "Panel %d (%s) has no window — run layout-setup first"
+                    n (knayawp--panel-type spec)))
+      (select-window win))))
+
+(defun knayawp-select-editor ()
+  "Select the main editor window."
+  (interactive)
+  (knayawp--select-editor-window))
+
+(defun knayawp-next-panel ()
+  "Cycle to the next panel in the control pane.
+If in the editor pane, jump to the first panel."
+  (interactive)
+  (let* ((idx (knayawp--current-panel-index))
+         (len (length knayawp-panels))
+         (next (if idx (mod (1+ idx) len) 0)))
+    (knayawp-select-panel (1+ next))))
+
+(defun knayawp-prev-panel ()
+  "Cycle to the previous panel in the control pane.
+If in the editor pane, jump to the last panel."
+  (interactive)
+  (let* ((idx (knayawp--current-panel-index))
+         (len (length knayawp-panels))
+         (prev (if idx (mod (1- idx) len) (1- len))))
+    (knayawp-select-panel (1+ prev))))
+
+(defun knayawp-toggle-panels ()
+  "Toggle visibility of all side windows."
+  (interactive)
+  (window-toggle-side-windows))
+
+(defun knayawp-zoom-panel ()
+  "Zoom the current panel to fill the right column.
+If already zoomed, restore all panels.  Must be called from
+a side window."
+  (interactive)
+  (if knayawp--zoomed-panel
+      ;; Unzoom: restore the full layout
+      (let* ((project-root (knayawp--project-root))
+             (buffer-alist (alist-get project-root
+                                      knayawp--active-layouts
+                                      nil nil #'equal)))
+        (dolist (panel-spec knayawp-panels)
+          (let* ((type (knayawp--panel-type panel-spec))
+                 (slot (knayawp--panel-slot panel-spec))
+                 (height (knayawp--panel-height panel-spec))
+                 (buf (alist-get type buffer-alist)))
+            (when (and buf (buffer-live-p buf))
+              (display-buffer-in-side-window
+               buf
+               `((side . right)
+                 (slot . ,slot)
+                 (window-width . ,knayawp-right-width)
+                 (window-height . ,height)
+                 (preserve-size . (t . nil))
+                 (window-parameters
+                  . ((no-delete-other-windows . t)
+                     (no-other-window . t))))))))
+        ;; Select the panel that was zoomed
+        (let* ((spec (seq-find
+                      (lambda (s)
+                        (eq knayawp--zoomed-panel
+                            (knayawp--panel-type s)))
+                      knayawp-panels))
+               (win (when spec
+                      (knayawp--side-window-for-slot
+                       (knayawp--panel-slot spec)))))
+          (when win (select-window win)))
+        (setq knayawp--zoomed-panel nil))
+    ;; Zoom: delete all other side windows
+    (let ((idx (knayawp--current-panel-index)))
+      (unless idx
+        (user-error "Not in a panel — select a panel first"))
+      (let ((current-slot (window-parameter (selected-window)
+                                            'window-slot))
+            (current-type (knayawp--panel-type
+                           (knayawp--panel-spec-at-index idx))))
+        (dolist (win (knayawp--side-windows))
+          (unless (eq (window-parameter win 'window-slot)
+                      current-slot)
+            (delete-window win)))
+        (setq knayawp--zoomed-panel current-type)))))
+
 ;;;; Command map
 
 (defvar knayawp-command-map
   (let ((map (make-sparse-keymap)))
     (define-key map "l" #'knayawp-layout-setup)
     (define-key map "q" #'knayawp-layout-teardown)
+    (define-key map "1" (lambda () (interactive) (knayawp-select-panel 1)))
+    (define-key map "2" (lambda () (interactive) (knayawp-select-panel 2)))
+    (define-key map "3" (lambda () (interactive) (knayawp-select-panel 3)))
+    (define-key map "n" #'knayawp-next-panel)
+    (define-key map "p" #'knayawp-prev-panel)
+    (define-key map "z" #'knayawp-zoom-panel)
+    (define-key map "0" #'knayawp-select-editor)
+    (define-key map "s" #'knayawp-toggle-panels)
     map)
   "Keymap for knayawp commands.
 Bind this to a prefix key of your choice, for example:
