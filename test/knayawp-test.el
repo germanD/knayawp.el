@@ -283,6 +283,28 @@
         ;; Safety restore
         (setq magit-display-buffer-function original)))))
 
+(ert-deftest knayawp-test-magit-double-setup-safe ()
+  "Calling setup twice preserves the real original display function."
+  (when (require 'magit nil t)
+    (let ((original magit-display-buffer-function)
+          (knayawp--magit-saved-display-fn nil)
+          (knayawp--commit-display-entry nil)
+          (knayawp-magit-commit-in-editor-flag t)
+          (display-buffer-alist nil))
+      (unwind-protect
+          (progn
+            (knayawp--setup-magit-integration)
+            (should (eq knayawp--magit-saved-display-fn original))
+            ;; Second setup must not overwrite the saved function
+            (knayawp--setup-magit-integration)
+            (should (eq knayawp--magit-saved-display-fn original))
+            ;; display-buffer-alist must not have duplicates
+            (should (= 1 (length display-buffer-alist)))
+            ;; Teardown must restore the real original
+            (knayawp--teardown-magit-integration)
+            (should (eq magit-display-buffer-function original)))
+        (setq magit-display-buffer-function original)))))
+
 (ert-deftest knayawp-test-commit-display-alist-entry ()
   "Setup adds COMMIT_EDITMSG to display-buffer-alist."
   (when (require 'magit nil t)

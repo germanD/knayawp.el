@@ -289,11 +289,16 @@ with `knayawp--magit-display-buffer'.  If
 `display-buffer-alist' entry to route COMMIT_EDITMSG to the
 editor pane."
   (when (require 'magit nil t)
-    (setq knayawp--magit-saved-display-fn
-          magit-display-buffer-function)
-    (setq magit-display-buffer-function
-          #'knayawp--magit-display-buffer)
-    (when knayawp-magit-commit-in-editor-flag
+    ;; Guard against double-setup: only save the original function
+    ;; if we haven't already installed ours.
+    (unless (eq magit-display-buffer-function
+                #'knayawp--magit-display-buffer)
+      (setq knayawp--magit-saved-display-fn
+            magit-display-buffer-function)
+      (setq magit-display-buffer-function
+            #'knayawp--magit-display-buffer))
+    (when (and knayawp-magit-commit-in-editor-flag
+               (not knayawp--commit-display-entry))
       (setq knayawp--commit-display-entry
             '("COMMIT_EDITMSG"
               (display-buffer-reuse-window
