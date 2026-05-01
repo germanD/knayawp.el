@@ -150,13 +150,13 @@ Note: `C-c LETTER` is reserved for users per GNU conventions. The package define
 ### v0.1.2 — Magit Integration
 
 **Custom `magit-display-buffer-function`:**
-- [ ] `knayawp--magit-display-buffer` — routes magit buffers to the magit side window:
+- [x] `knayawp--magit-display-buffer` — routes magit buffers to the magit side window:
   - `magit-status-mode`, `magit-log-mode`, `magit-diff-mode`, `magit-revision-mode`, `magit-stash-mode` → all go to magit side window (slot -1)
   - Transient buffers (diff, log) **replace** status in the same window
   - Pressing `q` restores previous buffer via magit's built-in `quit-restore` — no custom restoration needed
-- [ ] `COMMIT_EDITMSG` → route to the **editor pane** via `display-buffer-alist` (commits are editing tasks)
+- [x] `COMMIT_EDITMSG` → route to the **editor pane** via `display-buffer-alist` (commits are editing tasks)
 - [ ] `magit-process` → stays in magit slot or hidden
-- [ ] `knayawp--setup-magit-integration` / `knayawp--teardown-magit-integration`
+- [x] `knayawp--setup-magit-integration` / `knayawp--teardown-magit-integration`
 - [ ] `defcustom knayawp-magit-commit-in-editor-p` (default t) — whether commit messages open in editor pane
 
 ### v0.1.3 — Mode & Polish
