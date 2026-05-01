@@ -182,6 +182,15 @@ Source: [GNU Dedicated Windows](https://www.gnu.org/software/emacs/manual/html_n
 - After merging work that completes a milestone, close all implemented issues and close the milestone.
 - Enhancement issues that weren't part of the core deliverable should be moved to a later milestone, not left orphaned in a closed one.
 
+#### PLAN.md ↔ milestone invariant
+
+`PLAN.md` and the GitHub milestones must stay tightly matched. Two rules enforce this:
+
+1. **On issue creation.** When a new issue is filed against an open milestone, append a matching `- [ ]` line to that milestone's section in `PLAN.md` in the same change. The bullet text should track the issue title.
+2. **On milestone close.** Checkboxes are flipped to `[x]` *only* at milestone close, and the closing change must reconcile both directions: every closed issue under the milestone has a ticked checkbox in `PLAN.md`, and every checkbox under that heading corresponds to a closed issue. No drift left behind.
+
+The `pmo` agent (see [Agent Roles](#agent-roles)) owns this reconciliation. Invoke it at issue creation, milestone close, and release prep.
+
 ## Quality Checklist
 
 Before considering any task done:
@@ -243,3 +252,14 @@ Before considering any task done:
 - If tests fail, report the failure with test name and backtrace.
 - If no test file exists yet, note this.
 - For window-management code that can't be batch-tested, note what needs manual verification.
+
+### pmo
+
+**When to use:** Project administration — milestone close, new-issue PLAN.md sync, release prep.
+
+- Owns the [PLAN.md ↔ milestone invariant](#planmd--milestone-invariant). At milestone close, walk the milestone, tick the corresponding boxes in `PLAN.md`, and verify both directions match.
+- When a new issue is filed against an open milestone, append a matching `- [ ]` line to that milestone's section in `PLAN.md` and commit it alongside whatever motivated the issue.
+- At release prep, verify the package header `;; Version:` matches the milestone tag, the changelog has an entry, and all issues in the milestone are closed.
+- Move enhancement leftovers from a closing milestone to the next open milestone rather than leaving them orphaned.
+- All GitHub state changes go through `gh`. Never poke `.git/` for issue/milestone state.
+- Does not write `.el` code. If implementation work is required to complete an admin task, surface it and hand off.

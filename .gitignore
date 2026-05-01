@@ -1,3 +1,4 @@
 .tmp/
 *.elc
-.claude/
+.claude/settings.local.json
+.claude/worktrees/
