@@ -111,6 +111,10 @@ Each BUFFER-ALIST maps panel types to their buffers.")
   "The `display-buffer-alist' entry for COMMIT_EDITMSG routing.
 Stored so it can be cleanly removed on teardown.")
 
+(defvar knayawp--process-display-entry nil
+  "The `display-buffer-alist' entry for `magit-process-mode' routing.
+Stored so it can be cleanly removed on teardown.")
+
 ;;;; Project detection
 
 (defun knayawp--project-root ()
@@ -268,13 +272,28 @@ previously active `magit-display-buffer-function'."
           . ((no-delete-other-windows . t)
              (no-other-window . t))))))))
 
+(defun knayawp--magit-process-buffer-p (buffer-or-name _action)
+  "Return non-nil if BUFFER-OR-NAME is a `magit-process-mode' buffer.
+Used as a `display-buffer-alist' condition.  Only matches when a
+knayawp magit side window currently exists in the selected frame,
+so the routing is a no-op when no layout is active."
+  (when-let* ((magit-spec (assq 'magit knayawp-panels))
+              ((knayawp--side-window-for-slot
+                (knayawp--panel-slot magit-spec))))
+    (let ((buf (get-buffer buffer-or-name)))
+      (and buf
+           (with-current-buffer buf
+             (derived-mode-p 'magit-process-mode))))))
+
 (defun knayawp--setup-magit-integration ()
   "Install magit buffer display integration.
 Save the current `magit-display-buffer-function' and replace it
 with `knayawp--magit-display-buffer'.  If
 `knayawp-magit-commit-in-editor-flag' is non-nil, add a
 `display-buffer-alist' entry to route COMMIT_EDITMSG to the
-editor pane."
+editor pane.  Also add an entry that pins `magit-process-mode'
+buffers to the magit side window so long-running git commands do
+not pop a window in the editor pane."
   (when (require 'magit nil t)
     ;; Guard against double-setup: only save the original function
     ;; if we haven't already installed ours.
@@ -292,12 +311,27 @@ editor pane."
                display-buffer-use-some-window)
               (reusable-frames . visible)
               (inhibit-same-window . t)))
-      (push knayawp--commit-display-entry display-buffer-alist))))
+      (push knayawp--commit-display-entry display-buffer-alist))
+    (unless knayawp--process-display-entry
+      (let ((slot (knayawp--panel-slot
+                   (assq 'magit knayawp-panels))))
+        (setq knayawp--process-display-entry
+              `(knayawp--magit-process-buffer-p
+                (display-buffer-in-side-window)
+                (side . right)
+                (slot . ,slot)
+                (window-width . ,knayawp-right-width)
+                (preserve-size . (t . nil))
+                (window-parameters
+                 . ((no-delete-other-windows . t)
+                    (no-other-window . t)))))
+        (push knayawp--process-display-entry display-buffer-alist)))))
 
 (defun knayawp--teardown-magit-integration ()
   "Remove magit buffer display integration.
 Restore the saved `magit-display-buffer-function' and remove the
-COMMIT_EDITMSG `display-buffer-alist' entry."
+COMMIT_EDITMSG and `magit-process-mode' `display-buffer-alist'
+entries."
   (when knayawp--magit-saved-display-fn
     (setq magit-display-buffer-function
           knayawp--magit-saved-display-fn)
@@ -305,7 +339,11 @@ COMMIT_EDITMSG `display-buffer-alist' entry."
   (when knayawp--commit-display-entry
     (setq display-buffer-alist
           (delq knayawp--commit-display-entry display-buffer-alist))
-    (setq knayawp--commit-display-entry nil)))
+    (setq knayawp--commit-display-entry nil))
+  (when knayawp--process-display-entry
+    (setq display-buffer-alist
+          (delq knayawp--process-display-entry display-buffer-alist))
+    (setq knayawp--process-display-entry nil)))
 
 ;;;; Layout engine
 
