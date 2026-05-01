@@ -21,7 +21,7 @@ Status legend per idea:
 
 ## Idea 1 — Alternative layouts and panel rotation
 
-**Status:** sketch
+**Status:** ready (pending user sign-off on rotation keys and milestone scope)
 
 ### Motivation
 
@@ -32,83 +32,179 @@ squeezed. We want the package to scale gracefully across screen sizes without
 forcing the user to manually reconfigure `knayawp-panels` each time they
 undock.
 
-### Rough shape
+### Layout taxonomy
 
-Introduce the notion of a **layout** — a named arrangement of which panels are
-*visible* on the side pane and which are *offscreen* (still alive as buffers,
-just not displayed). Switching layouts swaps which panels are shown.
+A **layout** is a named selection of which panels are visible on the side
+pane and in what order; the rest of the configured panels are *stashed* (alive
+as buffers, just not displayed). Three layouts ship by default:
 
-Examples:
+- **`wide`** (current behavior, default): all three panels visible.
+- **`narrow`**: two visible (default `magit` + `claude`), `vterm` stashed.
+- **`solo`**: one visible, the other two stashed — effectively a permanent
+  zoom for laptop-sized screens.
 
-- `wide` (current default): all three panels visible.
-- `narrow`: two visible (e.g. magit + claude), the third (vterm) lives
-  offscreen and can be swapped in via a rotation command.
-- `solo`: only one visible, the other two offscreen — effectively a "always
-  zoomed" layout for very small screens.
+The `narrow` layout is the interesting one: it introduces a tmux-style
+"current visible panels + stash" model with a rotation primitive that swaps
+a stashed panel into a visible slot.
 
-The `narrow` layout is the interesting one because it introduces a tmux-style
-notion of "the current panel" plus a stash of hidden panels you rotate
-through.
+### Data model
 
-### Integration with existing concepts
+Two defcustoms split responsibilities cleanly:
 
-- **Zoom mode** already implements "show one panel, hide the others, remember
-  the originals." Layouts generalise that: zoom is the `solo` layout with a
-  return path. Implementing layouts properly should let zoom fall out as a
-  special case rather than a parallel mechanism.
-- **Rotation** in narrow mode (next/prev panel through the hidden stash) maps
-  naturally onto the existing `knayawp-next-panel` / `knayawp-prev-panel`
-  cycle, but the semantics shift: instead of moving point between visible
-  windows, rotation swaps which panel occupies a given visible slot.
-- **`C-c k l`** (layout setup) could detect `frame-width` / `frame-height` and
-  pick a default layout. *Open question — see below.*
+- **`knayawp-panels`** stays the catalogue of *what panels exist and where
+  they live* (slot, height, type). Existing user values continue to work.
+- **`knayawp-layouts`** is new. It declares *which subset of panels is
+  visible right now* under a given layout name. Slot/type metadata stays in
+  `knayawp-panels` so layouts don't redeclare it.
 
-### Keybinding implications
+```elisp
+(defcustom knayawp-layouts
+  '((wide   :visible (magit vterm claude))
+    (narrow :visible (magit claude) :stash (vterm))
+    (solo   :visible (claude)       :stash (magit vterm)))
+  "Named layouts mapping panel selections to display state."
+  :type '(alist :key-type symbol :value-type plist)
+  :group 'knayawp)
 
-If rotation becomes the dominant motion in narrow layouts, we may want to
-re-bind:
+(defcustom knayawp-default-layout 'wide
+  "Layout selected by `knayawp-layout-setup' when none is given."
+  :type 'symbol
+  :group 'knayawp)
+```
 
-- `C-c k n` / `C-c k p` → up/down arrows (intra-pane window cycling, current
-  meaning)
-- `C-c k <left>` / `C-c k <right>` → rotate hidden panel into visible slot
-  (new)
+If `knayawp-layouts` is unset, a `wide`-equivalent layout is derived from
+`knayawp-panels` so existing users see no change.
 
-This is a breaking change to the v0.1.1 keymap, so it would need to land in a
-minor version bump and be opt-in for at least one cycle.
+### Decisions (synthesis from design pass)
 
-### Open questions
+The architect, prior-art, and risk/migration agents converged on the
+following positions. Disagreements explicitly noted.
 
-1. **Auto-detect vs explicit selection.** Should `C-c k l` infer the layout
-   from `frame-width`, or should the user always pick? Tradeoff: auto-detect
-   is magical and hard to predict; explicit selection is one extra keystroke
-   but you always know what you'll get. Lean: ship explicit first
-   (`C-c k L` to pick a layout), add `knayawp-layout-auto-select` as an
-   opt-in defcustom once thresholds are well-understood.
+1. **Zoom subsumes into `solo`.** `knayawp-zoom-panel` becomes a thin wrapper
+   that applies an ephemeral `solo-<panel>` layout, recording the prior
+   layout in `knayawp--pre-zoom-layout`. `knayawp--zoomed-panel` survives
+   one minor cycle as a compat shim updated by the layout system; it can
+   be retired once external configs that touch it have time to migrate.
+   The public `knayawp-zoom-panel` command stays forever.
 
-2. **Persistence per project.** Should the chosen layout be remembered per
-   project (so `myapp` always opens `narrow` regardless of frame size)? Or
-   global per frame? Probably project-scoped, but defer until v0.2 when
-   tab-bar workspaces exist.
+2. **Explicit layout selection first; auto-detect is opt-in.** A new
+   `knayawp-select-layout` command (completing-read over `knayawp-layouts`)
+   is bound to `L` under the prefix. `knayawp-layout-auto-select-flag`
+   defaults to `nil` and is added later, gated on real-world threshold
+   data. Auto-detect on tiling WMs (i3/sway) risks fighting the user, so
+   it never defaults on inside 0.x.
 
-3. **What goes offscreen by default in `narrow`?** vterm seems like the
-   natural candidate (least-used in many flows) but this is highly
-   user-dependent. Should be a defcustom: `knayawp-narrow-visible-panels`.
+3. **Persistence per project deferred to v0.2.x.** Tab-bar workspaces are
+   the natural carrier for per-project layout state — wiring layout
+   persistence into a tab parameter is one line at that point. Inventing a
+   separate per-project storage now means migration churn later.
 
-### Prior art
+4. **`narrow` defaults: magit + claude visible, vterm stashed.** Encoded
+   in the `knayawp-layouts` default — no separate `knayawp-narrow-visible-
+   panels` defcustom needed (users override the layout entry directly).
 
-- **tmux:** windows-within-session model, `prefix + n/p` to rotate, hidden
-  windows still alive. Direct inspiration for the rotation semantics.
-- **i3/sway tabbed/stacked containers:** one visible, others as tabs at the
-  top. Could inform the eventual visual indicator (idea 2).
-- **Emacs `tab-line-mode`:** could render the offscreen panel list as tabs
-  inside the side pane, giving free affordance for "what's hidden."
+5. **Rotation key — open.** *Plan agent* proposed `C-c k <left>` / `<right>`.
+   *Prior-art agent* warned that `C-c <left>` / `<right>` are winner-mode
+   muscle memory and the prefix variant will misfire visually. Two safer
+   options: `C-c k f` / `C-c k b` (forward/back) or `C-c k >` / `C-c k <`
+   (mirroring tmux's `{` / `}` rotation glyphs without shift). **Decision
+   needs user sign-off before issue L4 lands.**
+
+6. **`C-c k n` / `C-c k p` keybinding migration is the only true break.**
+   Three-phase rollout (see issue plan): additive in v0.2.x, soft-
+   deprecation in v0.3.0-beta, default flip in v0.3.0. The function
+   symbols stay callable via `M-x` permanently with `make-obsolete`.
+
+### Prior-art guardrails
+
+From the research pass — what to steal and what to skip:
+
+- **Steal from tmux**: two-tier model (panes-visible vs windows-hidden);
+  `rotate-window` semantics over `swap-pane` (cycle, don't point-swap);
+  `swap-pane -d` convention — rotation never steals focus from the editor;
+  status indicator in the spirit of tmux's `*` / `-` / `Z` (one character
+  per panel in the side-window mode line, current marked).
+- **Steal from i3**: `layout toggle split` idiom — a single command
+  `knayawp-layout-cycle` walking `solo → narrow → wide → solo`.
+- **Steal from popper.el**: study its `popper-buried-popup-alist` shape
+  for `knayawp--panels-offscreen`. Don't depend on popper.
+- **Reject** top tab strips (bufferline.nvim / i3 tabbed titles) — they
+  add visual noise on the small screens this feature targets.
+- **Reject** Vim's "tab" terminology for in-side-pane rotation — "tab"
+  already means `tab-bar-mode` workspace in v0.2 vocabulary.
+- **Reject** ace-window-style overlays for offscreen panels (nothing to
+  overlay onto). Overlays are reserved for Idea 2.
+- **Reject** hard-coded `frame-width` thresholds for auto-detect.
+- **Lean on**: `display-buffer-in-side-window` + `window-parameters`,
+  `tab-line-mode` (only as opt-in within the side window), `winner-mode`
+  exemption (rotation must not pollute winner history). **Skip**
+  `shackle.el` and `purpose.el` — both wrap `display-buffer-alist` and
+  we want to call `display-buffer` directly per project conventions.
+
+### Sequenced rollout (issue plan)
+
+Filed against a new **v0.3.0** milestone. Rationale: v0.1.3 is for v0.1.2
+follow-on patches; v0.2.x is locked to tab-bar workspaces; layouts deserve
+their own release line. Phase 0 below is the only candidate for landing
+inside v0.2.x as additive prelude.
+
+**Phase 0 — strictly additive, zero breaking changes (v0.2.x):**
+
+- **L1.** Introduce `knayawp-layouts` + `knayawp-default-layout` defcustoms;
+  add internal `knayawp--apply-layout` resolver. `knayawp-layout-setup`
+  calls `(knayawp--apply-layout knayawp-default-layout)`. If
+  `knayawp-layouts` is unset, derive a `wide`-equivalent layout from
+  `knayawp-panels`. No user-visible change.
+- **L2.** Reimplement zoom internally as ephemeral `solo` layout. Keep
+  `knayawp-zoom-panel` and `knayawp--zoomed-panel` (the latter as a compat
+  shim updated by the layout system). ERT covers zoom/unzoom round-trip.
+- **L3.** Add `knayawp-select-layout` (interactive completing-read) bound
+  to `L`. `narrow` and `solo` layouts become selectable but `wide` stays
+  default.
+- **L4.** Add `knayawp-rotate-next` / `knayawp-rotate-prev` and bind them
+  to a chosen pair (see decision 5). No-op in `wide`. `n` / `p` keymap
+  unchanged. Add a one-character status indicator in the side-window mode
+  line (panel symbol + `*` for current, dim for stashed).
+
+**Phase 1 — opt-in changes (v0.3.0-beta):**
+
+- **L5.** Add `knayawp-layout-auto-select-flag` (default `nil`) and
+  `knayawp-narrow-threshold-columns`. Auto-selection only fires when the
+  flag is set.
+- **L6.** Mark `knayawp-next-panel` / `knayawp-prev-panel` obsolete via
+  `make-obsolete`. Keymap unchanged. README documents the upcoming flip.
+
+**Phase 2 — keymap flip (v0.3.0 release):**
+
+- **L7.** Flip `n` / `p` in `knayawp-command-map` to intra-pane window
+  cycling. Old function symbols remain callable. NEWS / README documents
+  the migration with a one-liner to restore the old keymap.
+
+**Phase 3 — polish (v0.3.x, follow-up issues, not pre-filed):**
+
+- Default-on auto-detect once user feedback confirms it isn't surprising.
+- Retire `knayawp--zoomed-panel` internal compat shim.
+
+### Risk register (top 3, full list in design notes)
+
+1. **Keymap rebind silently breaks muscle memory.** Mitigation: full minor
+   cycle of `make-obsolete` warnings + README NEWS entry. Reversible in a
+   patch.
+2. **`knayawp-panels` semantic shift hides panels.** Mitigation: derive
+   `wide` layout from `knayawp-panels` when `knayawp-layouts` is unset;
+   default layout is `wide`. Reversible.
+3. **Zoom/layout state-machine collision.** Mitigation: single state owner
+   from L2 onward — `knayawp--zoomed-panel` becomes a derived value, not a
+   primary state. Structural risk; landing L1+L2 together is the de-risk.
 
 ### Promote-to-issue checklist
 
-- [ ] Lock the layout taxonomy (names, defaults).
-- [ ] Decide rotation keybindings (and migration plan).
-- [ ] Decide auto-detect vs explicit (probably explicit-first).
-- [ ] Spec how zoom collapses into the layout abstraction.
+- [ ] User decides rotation keys (decision 5): `f`/`b`, `>`/`<`, or arrows.
+- [ ] User confirms v0.3.0 milestone vs squeezing Phase 0 into v0.2.x.
+- [ ] File issues L1–L7 against the chosen milestones, in dependency
+      order, with the issue bodies derived from the phased plan above.
+- [ ] When ready to start work, add corresponding `- [ ]` lines to PLAN.md
+      under each milestone (per the PLAN.md ↔ milestone invariant).
 
 ---
 
