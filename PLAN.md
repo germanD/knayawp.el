@@ -157,7 +157,9 @@ Note: `C-c LETTER` is reserved for users per GNU conventions. The package define
 - [x] `COMMIT_EDITMSG` → route to the **editor pane** via `display-buffer-alist` (commits are editing tasks)
 - [ ] `magit-process` → stays in magit slot or hidden
 - [x] `knayawp--setup-magit-integration` / `knayawp--teardown-magit-integration`
-- [ ] `defcustom knayawp-magit-commit-in-editor-p` (default t) — whether commit messages open in editor pane
+- [x] `defcustom knayawp-magit-commit-in-editor-flag` (default t) — whether commit messages open in editor pane
+- [x] Use `file-equal-p` for magit buffer path matching (fixes silent missing magit panel on bind-mount/symlink paths) — #54
+- [x] Equalise right-pane slot heights on layout setup (equal thirds by default) — #55
 
 ### v0.1.3 — Mode & Polish
 
