@@ -232,6 +232,112 @@
   ;; In batch mode, the selected window is never a side window
   (should-not (knayawp--current-panel-index)))
 
+;;;; Magit integration
+
+(ert-deftest knayawp-test-magit-commit-in-editor-flag-default ()
+  "Default commit-in-editor flag is t."
+  (should (eq t (default-value 'knayawp-magit-commit-in-editor-flag))))
+
+(ert-deftest knayawp-test-magit-saved-display-fn-initially-nil ()
+  "Saved magit display function is nil before setup."
+  (should-not knayawp--magit-saved-display-fn))
+
+(ert-deftest knayawp-test-magit-commit-entry-initially-nil ()
+  "Commit display-buffer-alist entry is nil before setup."
+  (should-not knayawp--commit-display-entry))
+
+(ert-deftest knayawp-test-magit-display-buffer-no-layout ()
+  "Display function falls back when no side window exists."
+  ;; In batch mode there are no side windows, so it should fall back.
+  ;; We just verify it doesn't error and returns a window.
+  (when (require 'magit nil t)
+    (let ((buf (get-buffer-create "*magit-test-fallback*")))
+      (unwind-protect
+          (should (windowp (knayawp--magit-display-buffer buf)))
+        (kill-buffer buf)))))
+
+(ert-deftest knayawp-test-magit-teardown-idempotent ()
+  "Tearing down magit integration when not set up is safe."
+  (let ((knayawp--magit-saved-display-fn nil)
+        (knayawp--commit-display-entry nil))
+    (knayawp--teardown-magit-integration)
+    (should-not knayawp--magit-saved-display-fn)
+    (should-not knayawp--commit-display-entry)))
+
+(ert-deftest knayawp-test-magit-setup-teardown-roundtrip ()
+  "Setup then teardown restores original display function."
+  (when (require 'magit nil t)
+    (let ((original magit-display-buffer-function)
+          (knayawp--magit-saved-display-fn nil)
+          (knayawp--commit-display-entry nil)
+          (display-buffer-alist display-buffer-alist))
+      (unwind-protect
+          (progn
+            (knayawp--setup-magit-integration)
+            (should (eq magit-display-buffer-function
+                        #'knayawp--magit-display-buffer))
+            (should knayawp--magit-saved-display-fn)
+            (knayawp--teardown-magit-integration)
+            (should (eq magit-display-buffer-function original))
+            (should-not knayawp--magit-saved-display-fn))
+        ;; Safety restore
+        (setq magit-display-buffer-function original)))))
+
+(ert-deftest knayawp-test-magit-double-setup-safe ()
+  "Calling setup twice preserves the real original display function."
+  (when (require 'magit nil t)
+    (let ((original magit-display-buffer-function)
+          (knayawp--magit-saved-display-fn nil)
+          (knayawp--commit-display-entry nil)
+          (knayawp-magit-commit-in-editor-flag t)
+          (display-buffer-alist nil))
+      (unwind-protect
+          (progn
+            (knayawp--setup-magit-integration)
+            (should (eq knayawp--magit-saved-display-fn original))
+            ;; Second setup must not overwrite the saved function
+            (knayawp--setup-magit-integration)
+            (should (eq knayawp--magit-saved-display-fn original))
+            ;; display-buffer-alist must not have duplicates
+            (should (= 1 (length display-buffer-alist)))
+            ;; Teardown must restore the real original
+            (knayawp--teardown-magit-integration)
+            (should (eq magit-display-buffer-function original)))
+        (setq magit-display-buffer-function original)))))
+
+(ert-deftest knayawp-test-commit-display-alist-entry ()
+  "Setup adds COMMIT_EDITMSG to display-buffer-alist."
+  (when (require 'magit nil t)
+    (let ((original magit-display-buffer-function)
+          (knayawp--magit-saved-display-fn nil)
+          (knayawp--commit-display-entry nil)
+          (knayawp-magit-commit-in-editor-flag t)
+          (display-buffer-alist nil))
+      (unwind-protect
+          (progn
+            (knayawp--setup-magit-integration)
+            (should (= 1 (length display-buffer-alist)))
+            (should (string-match-p "COMMIT_EDITMSG"
+                                    (caar display-buffer-alist)))
+            (knayawp--teardown-magit-integration)
+            (should (null display-buffer-alist)))
+        (setq magit-display-buffer-function original)))))
+
+(ert-deftest knayawp-test-commit-display-alist-flag-off ()
+  "No COMMIT_EDITMSG entry when flag is nil."
+  (when (require 'magit nil t)
+    (let ((original magit-display-buffer-function)
+          (knayawp--magit-saved-display-fn nil)
+          (knayawp--commit-display-entry nil)
+          (knayawp-magit-commit-in-editor-flag nil)
+          (display-buffer-alist nil))
+      (unwind-protect
+          (progn
+            (knayawp--setup-magit-integration)
+            (should (null display-buffer-alist))
+            (knayawp--teardown-magit-integration))
+        (setq magit-display-buffer-function original)))))
+
 ;;;; No project signals error
 
 (ert-deftest knayawp-test-no-project-error ()
