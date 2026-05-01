@@ -1,10 +1,11 @@
 ;;; knayawp.el --- Project-oriented window layouts for Emacs -*- lexical-binding: t; -*-
 
-;; Author: Germán Carrillo
+;; Author: Germán Andrés Delbianco <knayawp@gmail.com>
+;; Maintainer: Germán Andrés Delbianco <knayawp@gmail.com>
 ;; Version: 0.1.2
 ;; Package-Requires: ((emacs "29.1") (magit "3.0"))
 ;; Keywords: frames, convenience
-;; URL: https://github.com/knayawp/knayawp.el
+;; URL: https://github.com/germanD/knayawp.el
 
 ;; This file is not part of GNU Emacs.
 
