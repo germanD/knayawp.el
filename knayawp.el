@@ -81,16 +81,17 @@ behavior."
   :group 'knayawp)
 
 (defcustom knayawp-panels
-  '((magit  :slot -1 :height 0.33)
-    (vterm  :slot  0 :height 0.33)
-    (claude :slot  1 :height 0.34))
+  '((magit  :slot -1)
+    (vterm  :slot  0)
+    (claude :slot  1))
   "Panel specifications for the control pane.
 Each entry is (TYPE . PLIST) where TYPE is a symbol and PLIST
-contains :slot (integer for side window ordering) and :height
-\(float for window height as frame fraction)."
+contains :slot (integer for side window ordering).  Slot heights
+are equalised after layout creation; per-panel height
+configuration is not yet exposed."
   :type '(alist :key-type symbol
                 :value-type (plist :key-type keyword
-                                   :value-type number))
+                                   :value-type integer))
   :group 'knayawp)
 
 ;;;; Internal state
@@ -134,10 +135,6 @@ Format: *knayawp-TYPE-PROJECT-NAME*."
 (defun knayawp--panel-slot (panel-spec)
   "Return the :slot value from PANEL-SPEC."
   (plist-get (cdr panel-spec) :slot))
-
-(defun knayawp--panel-height (panel-spec)
-  "Return the :height value from PANEL-SPEC."
-  (plist-get (cdr panel-spec) :height))
 
 (defun knayawp--panel-type (panel-spec)
   "Return the type symbol from PANEL-SPEC."
@@ -327,7 +324,6 @@ left and is selected when done."
     (dolist (panel-spec knayawp-panels)
       (let* ((type (knayawp--panel-type panel-spec))
              (slot (knayawp--panel-slot panel-spec))
-             (height (knayawp--panel-height panel-spec))
              (buf (knayawp--create-panel-buffer
                    type project-root project-name)))
         (when buf
@@ -337,11 +333,12 @@ left and is selected when done."
            `((side . right)
              (slot . ,slot)
              (window-width . ,knayawp-right-width)
-             (window-height . ,height)
              (preserve-size . (t . nil))
              (window-parameters
               . ((no-delete-other-windows . t)
                  (no-other-window . t))))))))
+    ;; Equalise side window heights
+    (knayawp--balance-side-windows)
     ;; Record the layout
     (setf (alist-get project-root knayawp--active-layouts
                      nil nil #'equal)
@@ -368,6 +365,15 @@ Delete all side windows but do not kill their buffers."
    (lambda (win)
      (window-parameter win 'window-side))
    (window-list)))
+
+(defun knayawp--balance-side-windows ()
+  "Equalise the heights of all side windows in the current frame.
+Side windows on the same side share an internal parent window;
+calling `balance-windows' on that parent gives equal heights."
+  (when-let* ((wins (knayawp--side-windows))
+              ((>= (length wins) 2))
+              (parent (window-parent (car wins))))
+    (balance-windows parent)))
 
 (defun knayawp--select-editor-window ()
   "Select the main editor window (non-side-window)."
@@ -462,7 +468,6 @@ a side window."
         (dolist (panel-spec knayawp-panels)
           (let* ((type (knayawp--panel-type panel-spec))
                  (slot (knayawp--panel-slot panel-spec))
-                 (height (knayawp--panel-height panel-spec))
                  (buf (alist-get type buffer-alist)))
             (when (and buf (buffer-live-p buf))
               (display-buffer-in-side-window
@@ -470,11 +475,11 @@ a side window."
                `((side . right)
                  (slot . ,slot)
                  (window-width . ,knayawp-right-width)
-                 (window-height . ,height)
                  (preserve-size . (t . nil))
                  (window-parameters
                   . ((no-delete-other-windows . t)
                      (no-other-window . t))))))))
+        (knayawp--balance-side-windows)
         ;; Select the panel that was zoomed
         (let* ((spec (seq-find
                       (lambda (s)

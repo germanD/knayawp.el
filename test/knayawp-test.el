@@ -62,24 +62,16 @@
 (ert-deftest knayawp-test-panel-type ()
   "Extract panel type from spec."
   (should (eq 'magit
-              (knayawp--panel-type '(magit :slot -1 :height 0.33)))))
+              (knayawp--panel-type '(magit :slot -1)))))
 
 (ert-deftest knayawp-test-panel-slot ()
   "Extract slot from panel spec."
   (should (equal -1
-                 (knayawp--panel-slot '(magit :slot -1 :height 0.33))))
+                 (knayawp--panel-slot '(magit :slot -1))))
   (should (equal 0
-                 (knayawp--panel-slot '(vterm :slot 0 :height 0.33))))
+                 (knayawp--panel-slot '(vterm :slot 0))))
   (should (equal 1
-                 (knayawp--panel-slot '(claude :slot 1 :height 0.34)))))
-
-(ert-deftest knayawp-test-panel-height ()
-  "Extract height from panel spec."
-  (should (equal 0.33
-                 (knayawp--panel-height '(magit :slot -1 :height 0.33))))
-  (should (equal 0.34
-                 (knayawp--panel-height
-                  '(claude :slot 1 :height 0.34)))))
+                 (knayawp--panel-slot '(claude :slot 1)))))
 
 ;;;; Terminal dispatch routing
 
@@ -136,12 +128,6 @@
                (knayawp--panel-slot (nth 1 panels))))
     (should (< (knayawp--panel-slot (nth 1 panels))
                (knayawp--panel-slot (nth 2 panels))))))
-
-(ert-deftest knayawp-test-panel-heights-sum ()
-  "Panel heights should sum to approximately 1.0."
-  (let* ((panels (default-value 'knayawp-panels))
-         (total (apply #'+ (mapcar #'knayawp--panel-height panels))))
-    (should (< (abs (- total 1.0)) 0.01))))
 
 ;;;; Passive loading (P7)
 
@@ -208,9 +194,9 @@
 
 (ert-deftest knayawp-test-panel-spec-at-index ()
   "Return correct panel spec by index."
-  (let ((knayawp-panels '((magit :slot -1 :height 0.33)
-                           (vterm :slot 0 :height 0.33)
-                           (claude :slot 1 :height 0.34))))
+  (let ((knayawp-panels '((magit :slot -1)
+                           (vterm :slot 0)
+                           (claude :slot 1))))
     (should (eq 'magit (car (knayawp--panel-spec-at-index 0))))
     (should (eq 'vterm (car (knayawp--panel-spec-at-index 1))))
     (should (eq 'claude (car (knayawp--panel-spec-at-index 2))))
