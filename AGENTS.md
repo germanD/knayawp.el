@@ -169,6 +169,19 @@ Source: [GNU Side Windows](https://www.gnu.org/software/emacs/manual/html_node/e
 
 Source: [GNU Dedicated Windows](https://www.gnu.org/software/emacs/manual/html_node/elisp/Dedicated-Windows.html)
 
+## Git & GitHub Workflow
+
+### Issue and PR linking
+
+- Every PR must reference the issues it closes using `Closes #N` or `Fixes #N` in the PR body. This auto-closes the issues on merge.
+- When closing issues manually (e.g., for work landed directly on main), include the implementing commit SHA in the closing comment.
+- When creating a PR for a milestone, list all issues addressed in the PR description.
+
+### Milestone hygiene
+
+- After merging work that completes a milestone, close all implemented issues and close the milestone.
+- Enhancement issues that weren't part of the core deliverable should be moved to a later milestone, not left orphaned in a closed one.
+
 ## Quality Checklist
 
 Before considering any task done:
