@@ -189,32 +189,21 @@ If COMMAND is non-nil, run it instead of the default shell."
   "Return a magit-status buffer for PROJECT-ROOT.
 Create one if it does not already exist.  If magit is not
 available, return an informational placeholder buffer."
-  (let ((project-name (knayawp--project-name project-root)))
+  (let ((project-name (knayawp--project-name project-root))
+        (dir (file-name-as-directory project-root)))
     (if (require 'magit nil t)
-        (progn
-          ;; Check for existing magit-status buffer for this project
-          (or (seq-find
-               (lambda (buf)
-                 (with-current-buffer buf
-                   (and (derived-mode-p 'magit-status-mode)
-                        (string= default-directory
-                                 (file-name-as-directory project-root)))))
-               (buffer-list))
-              ;; Create a new magit-status buffer
-              (let ((default-directory
-                     (file-name-as-directory project-root)))
-                (save-window-excursion
-                  (magit-status-setup-buffer
-                   (file-name-as-directory project-root)))
-                ;; Find the buffer magit just created
-                (seq-find
-                 (lambda (buf)
-                   (with-current-buffer buf
-                     (and (derived-mode-p 'magit-status-mode)
-                          (string= default-directory
-                                   (file-name-as-directory
-                                    project-root)))))
-                 (buffer-list)))))
+        ;; Check for existing magit-status buffer for this project,
+        ;; then create one if needed.  Use file-equal-p for comparison
+        ;; because project.el and magit may resolve paths differently
+        ;; (e.g., symlinks, bind mounts).
+        (or (seq-find
+             (lambda (buf)
+               (with-current-buffer buf
+                 (and (derived-mode-p 'magit-status-mode)
+                      (file-equal-p default-directory dir))))
+             (buffer-list))
+            (save-window-excursion
+              (magit-status-setup-buffer dir)))
       ;; Graceful degradation: magit not available
       (let* ((buf-name (knayawp--buffer-name 'magit project-name))
              (buf (get-buffer-create buf-name)))
