@@ -155,7 +155,7 @@ Note: `C-c LETTER` is reserved for users per GNU conventions. The package define
   - Transient buffers (diff, log) **replace** status in the same window
   - Pressing `q` restores previous buffer via magit's built-in `quit-restore` — no custom restoration needed
 - [x] `COMMIT_EDITMSG` → route to the **editor pane** via `display-buffer-alist` (commits are editing tasks)
-- [ ] `magit-process` → stays in magit slot or hidden
+- [x] `magit-process` → stays in magit slot or hidden
 - [x] `knayawp--setup-magit-integration` / `knayawp--teardown-magit-integration`
 - [x] `defcustom knayawp-magit-commit-in-editor-flag` (default t) — whether commit messages open in editor pane
 - [x] Use `file-equal-p` for magit buffer path matching (fixes silent missing magit panel on bind-mount/symlink paths) — #54

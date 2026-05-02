@@ -245,10 +245,12 @@
 (ert-deftest knayawp-test-magit-teardown-idempotent ()
   "Tearing down magit integration when not set up is safe."
   (let ((knayawp--magit-saved-display-fn nil)
-        (knayawp--commit-display-entry nil))
+        (knayawp--commit-display-entry nil)
+        (knayawp--process-display-entry nil))
     (knayawp--teardown-magit-integration)
     (should-not knayawp--magit-saved-display-fn)
-    (should-not knayawp--commit-display-entry)))
+    (should-not knayawp--commit-display-entry)
+    (should-not knayawp--process-display-entry)))
 
 (ert-deftest knayawp-test-magit-setup-teardown-roundtrip ()
   "Setup then teardown restores original display function."
@@ -256,6 +258,7 @@
     (let ((original magit-display-buffer-function)
           (knayawp--magit-saved-display-fn nil)
           (knayawp--commit-display-entry nil)
+          (knayawp--process-display-entry nil)
           (display-buffer-alist display-buffer-alist))
       (unwind-protect
           (progn
@@ -265,7 +268,8 @@
             (should knayawp--magit-saved-display-fn)
             (knayawp--teardown-magit-integration)
             (should (eq magit-display-buffer-function original))
-            (should-not knayawp--magit-saved-display-fn))
+            (should-not knayawp--magit-saved-display-fn)
+            (should-not knayawp--process-display-entry))
         ;; Safety restore
         (setq magit-display-buffer-function original)))))
 
@@ -275,6 +279,7 @@
     (let ((original magit-display-buffer-function)
           (knayawp--magit-saved-display-fn nil)
           (knayawp--commit-display-entry nil)
+          (knayawp--process-display-entry nil)
           (knayawp-magit-commit-in-editor-flag t)
           (display-buffer-alist nil))
       (unwind-protect
@@ -284,8 +289,9 @@
             ;; Second setup must not overwrite the saved function
             (knayawp--setup-magit-integration)
             (should (eq knayawp--magit-saved-display-fn original))
-            ;; display-buffer-alist must not have duplicates
-            (should (= 1 (length display-buffer-alist)))
+            ;; display-buffer-alist must not have duplicates: one
+            ;; COMMIT_EDITMSG entry and one magit-process entry.
+            (should (= 2 (length display-buffer-alist)))
             ;; Teardown must restore the real original
             (knayawp--teardown-magit-integration)
             (should (eq magit-display-buffer-function original)))
@@ -297,14 +303,21 @@
     (let ((original magit-display-buffer-function)
           (knayawp--magit-saved-display-fn nil)
           (knayawp--commit-display-entry nil)
+          (knayawp--process-display-entry nil)
           (knayawp-magit-commit-in-editor-flag t)
           (display-buffer-alist nil))
       (unwind-protect
           (progn
             (knayawp--setup-magit-integration)
-            (should (= 1 (length display-buffer-alist)))
-            (should (string-match-p "COMMIT_EDITMSG"
-                                    (caar display-buffer-alist)))
+            ;; Setup adds both the COMMIT_EDITMSG entry and the
+            ;; magit-process entry.
+            (should (= 2 (length display-buffer-alist)))
+            (should (seq-find
+                     (lambda (e)
+                       (and (stringp (car e))
+                            (string-match-p "COMMIT_EDITMSG"
+                                            (car e))))
+                     display-buffer-alist))
             (knayawp--teardown-magit-integration)
             (should (null display-buffer-alist)))
         (setq magit-display-buffer-function original)))))
@@ -315,13 +328,68 @@
     (let ((original magit-display-buffer-function)
           (knayawp--magit-saved-display-fn nil)
           (knayawp--commit-display-entry nil)
+          (knayawp--process-display-entry nil)
           (knayawp-magit-commit-in-editor-flag nil)
           (display-buffer-alist nil))
       (unwind-protect
           (progn
             (knayawp--setup-magit-integration)
-            (should (null display-buffer-alist))
-            (knayawp--teardown-magit-integration))
+            ;; Process entry is always added; commit entry only with flag.
+            (should (= 1 (length display-buffer-alist)))
+            (should-not (seq-find
+                         (lambda (e)
+                           (and (stringp (car e))
+                                (string-match-p "COMMIT_EDITMSG"
+                                                (car e))))
+                         display-buffer-alist))
+            (knayawp--teardown-magit-integration)
+            (should (null display-buffer-alist)))
+        (setq magit-display-buffer-function original)))))
+
+(ert-deftest knayawp-test-magit-process-entry-initially-nil ()
+  "Process display-buffer-alist entry is nil before setup."
+  (should-not knayawp--process-display-entry))
+
+(ert-deftest knayawp-test-magit-process-buffer-p-no-window ()
+  "Process matcher returns nil when no magit side window exists.
+This guards against routing process buffers to a side window
+when no layout is active."
+  ;; In batch mode there are never side windows, so the matcher must
+  ;; return nil regardless of the candidate buffer's mode.
+  (let ((buf (get-buffer-create "*knayawp-test-process-buffer*")))
+    (unwind-protect
+        (should-not (knayawp--magit-process-buffer-p buf nil))
+      (kill-buffer buf))))
+
+(ert-deftest knayawp-test-magit-process-display-alist-entry ()
+  "Setup adds a `magit-process-mode' entry to `display-buffer-alist'.
+Teardown removes it."
+  (when (require 'magit nil t)
+    (let ((original magit-display-buffer-function)
+          (knayawp--magit-saved-display-fn nil)
+          (knayawp--commit-display-entry nil)
+          (knayawp--process-display-entry nil)
+          (knayawp-magit-commit-in-editor-flag nil)
+          (display-buffer-alist nil))
+      (unwind-protect
+          (progn
+            (knayawp--setup-magit-integration)
+            (should knayawp--process-display-entry)
+            (should (memq knayawp--process-display-entry
+                          display-buffer-alist))
+            ;; The matcher is our predicate function.
+            (should (eq 'knayawp--magit-process-buffer-p
+                        (car knayawp--process-display-entry)))
+            ;; The action routes to a right side window in the magit
+            ;; slot.
+            (let ((alist (cdr knayawp--process-display-entry)))
+              (should (memq 'display-buffer-in-side-window
+                            (car alist)))
+              (should (eq 'right (alist-get 'side alist)))
+              (should (equal -1 (alist-get 'slot alist))))
+            (knayawp--teardown-magit-integration)
+            (should-not knayawp--process-display-entry)
+            (should (null display-buffer-alist)))
         (setq magit-display-buffer-function original)))))
 
 ;;;; No project signals error
