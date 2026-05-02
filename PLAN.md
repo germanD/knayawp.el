@@ -164,11 +164,13 @@ Note: `C-c LETTER` is reserved for users per GNU conventions. The package define
 ### v0.1.3 — Mode & Polish
 
 - [ ] `knayawp-mode` global minor mode that hooks into `project-switch-project`
-- [ ] When mode is active and user switches to a project → auto-run layout setup
+- [ ] Auto-layout on `project-switch-project` — when mode is active, run `knayawp-layout-setup` on switch — #29
 - [ ] Handle edge cases: frame too narrow (skip right panels), missing magit/vterm
 - [ ] `defcustom knayawp-layout-hook` — run after layout is created
 - [ ] `winner-mode` integration — save/restore via winner before tearing down
 - [ ] `display-buffer-alist` entries so Emacs routes knayawp buffers correctly even when created outside the setup flow
+- [ ] Make right-pane slot heights configurable — #56
+- [ ] `defcustom knayawp-keymap-style` with tmux/byobu arrow-key navigation — #22
 
 ---
 
