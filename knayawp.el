@@ -565,5 +565,30 @@ Bind this to a prefix key of your choice, for example:
 
 (fset 'knayawp-command-map knayawp-command-map)
 
+;;;; Global minor mode
+
+(defun knayawp--mode-on ()
+  "Install global hooks and integration for `knayawp-mode'.
+Subsequent v0.1.3 work attaches behaviors here (project-switch
+auto-layout, `display-buffer-alist' routing).  No-op for now.")
+
+(defun knayawp--mode-off ()
+  "Tear down global hooks and integration for `knayawp-mode'.
+Inverse of `knayawp--mode-on'.  No-op for now.")
+
+;;;###autoload
+(define-minor-mode knayawp-mode
+  "Toggle knayawp global minor mode.
+When enabled, knayawp installs project-aware hooks and display
+routing that complement `knayawp-layout-setup'.  Loading the
+package alone never enables the mode (see property P7); the user
+must enable it explicitly."
+  :global t
+  :group 'knayawp
+  :lighter nil
+  (if knayawp-mode
+      (knayawp--mode-on)
+    (knayawp--mode-off)))
+
 (provide 'knayawp)
 ;;; knayawp.el ends here

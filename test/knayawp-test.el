@@ -137,6 +137,48 @@
   (should (not (equal '(nil nil nil 3)
                       (default-value 'window-sides-slots)))))
 
+(ert-deftest knayawp-test-mode-disabled-by-default ()
+  "`knayawp-mode' is disabled when the package is merely loaded."
+  (should (not (default-value 'knayawp-mode))))
+
+;;;; Global minor mode
+
+(ert-deftest knayawp-test-mode-defined ()
+  "`knayawp-mode' is a global minor mode."
+  (should (fboundp 'knayawp-mode))
+  (should (get 'knayawp-mode 'standard-value)))
+
+(ert-deftest knayawp-test-mode-toggle-invokes-helpers ()
+  "Enabling and disabling the mode calls the on/off helpers."
+  (let ((on-calls 0)
+        (off-calls 0))
+    (cl-letf (((symbol-function 'knayawp--mode-on)
+               (lambda () (cl-incf on-calls)))
+              ((symbol-function 'knayawp--mode-off)
+               (lambda () (cl-incf off-calls))))
+      (unwind-protect
+          (progn
+            (knayawp-mode 1)
+            (should (= 1 on-calls))
+            (should (= 0 off-calls))
+            (knayawp-mode -1)
+            (should (= 1 on-calls))
+            (should (= 1 off-calls)))
+        ;; Always leave the mode disabled.
+        (knayawp-mode -1)))))
+
+(ert-deftest knayawp-test-mode-roundtrip-leaves-disabled ()
+  "Toggling the mode on and off returns to the disabled state."
+  (cl-letf (((symbol-function 'knayawp--mode-on) #'ignore)
+            ((symbol-function 'knayawp--mode-off) #'ignore))
+    (unwind-protect
+        (progn
+          (knayawp-mode 1)
+          (should knayawp-mode)
+          (knayawp-mode -1)
+          (should (not knayawp-mode)))
+      (knayawp-mode -1))))
+
 ;;;; Command map
 
 (ert-deftest knayawp-test-command-map-exists ()
