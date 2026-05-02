@@ -12,6 +12,7 @@ An opinionated Emacs package for project-oriented window layouts. Editor on the 
 
 - [spec.md](spec.md) — Product specification: what the package does, who it's for, feature definitions
 - [properties.md](properties.md) — Invariants, correctness constraints, and architectural boundaries
+- [ideas.md](ideas.md) — Forward-looking features in the incubator stage (not yet committed work)
 
 ## Related Project Files
 
