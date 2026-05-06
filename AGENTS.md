@@ -177,6 +177,27 @@ Source: [GNU Dedicated Windows](https://www.gnu.org/software/emacs/manual/html_n
 - When closing issues manually (e.g., for work landed directly on main), include the implementing commit SHA in the closing comment.
 - When creating a PR for a milestone, list all issues addressed in the PR description.
 
+### PR labels
+
+- Every PR must carry at least one area label before it is merged.
+- **Inherit from the closed issue(s).** When a PR closes one or more issues, apply all area labels from those issues to the PR. Use `gh api repos/:owner/:repo/issues/PR_NUMBER/labels -X POST -f "labels[]=LABEL"` (the issues and pulls endpoints share label state).
+- If a PR addresses work not tracked by a labeled issue (e.g., a chore or hotfix), apply the most specific area label that fits (`scaffolding`, `layout`, `magit`, `mode`, `terminal`, `navigation`, `tabs`, `persistence`) plus `bug` or `enhancement` as appropriate.
+- The `pmo` agent is responsible for verifying labels at PR creation time and retroactively correcting any unlabeled open PRs it encounters.
+
+### PR reviewers
+
+This is a solo project. There is no teammate to request formal review from, and GitHub's review-request mechanism is intentionally unused. The quality gate is a self-review checklist run by the `pmo` agent before any PR is merged.
+
+Before merging a PR, verify:
+
+- [ ] The PR body contains a `Closes #N` or `Fixes #N` line for every issue it addresses.
+- [ ] At least one area label is applied (see [PR labels](#pr-labels) above).
+- [ ] The PR description includes a test plan with byte-compile, checkdoc, and ERT steps.
+- [ ] The test plan steps were actually executed and their output matches expectations (check the PR body or linked commit for evidence).
+- [ ] No `.el` changes bypass the [Quality Checklist](#quality-checklist) — if they do, block the merge and raise the gap.
+
+The `pmo` agent is responsible for running this checklist at PR creation time. Do not merge a PR that fails any item.
+
 ### Milestone hygiene
 
 - After merging work that completes a milestone, close all implemented issues and close the milestone.
@@ -261,5 +282,7 @@ Before considering any task done:
 - When a new issue is filed against an open milestone, append a matching `- [ ]` line to that milestone's section in `PLAN.md` and commit it alongside whatever motivated the issue.
 - At release prep, verify the package header `;; Version:` matches the milestone tag, the changelog has an entry, and all issues in the milestone are closed.
 - Move enhancement leftovers from a closing milestone to the next open milestone rather than leaving them orphaned.
+- Verifies labels at PR creation time: inherit area labels from closed issues; apply area + type labels for untracked work. Retroactively corrects any unlabeled open PRs encountered.
+- Runs the [PR reviewer self-review checklist](#pr-reviewers) before any PR is merged: `Closes #N` link, label, test plan present and evidenced. Blocks the merge and raises the gap if any item fails.
 - All GitHub state changes go through `gh`. Never poke `.git/` for issue/milestone state.
 - Does not write `.el` code. If implementation work is required to complete an admin task, surface it and hand off.
