@@ -171,6 +171,12 @@ Source: [GNU Dedicated Windows](https://www.gnu.org/software/emacs/manual/html_n
 
 ## Git & GitHub Workflow
 
+### Force-push policy
+
+Force-pushing to any branch is reserved for the human. Agents must not run `git push --force`, `git push -f`, or `git push --force-with-lease` — even when explicitly asked. If a workflow appears to require a force push (e.g., rewriting history after a rebase, dropping a commit), surface the situation and the proposed command and let the human run it.
+
+Regular pushes are governed by the autonomy rules in `CLAUDE.md`: agents may push commits to remote branches (including `main` for chore work like the `pmo` agent's milestone reconciliation) once the human has authorised it for the task at hand.
+
 ### Issue and PR linking
 
 - Every PR must reference the issues it closes using `Closes #N` or `Fixes #N` in the PR body. This auto-closes the issues on merge.
