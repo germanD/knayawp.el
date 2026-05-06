@@ -186,7 +186,9 @@ Source: [GNU Dedicated Windows](https://www.gnu.org/software/emacs/manual/html_n
 
 ### PR reviewers
 
-This is a solo project. There is no teammate to request formal review from, and GitHub's review-request mechanism is intentionally unused. The quality gate is a self-review checklist run by the `pmo` agent before any PR is merged.
+Reviewer assignment is declarative: see [`.github/CODEOWNERS`](.github/CODEOWNERS). GitHub auto-requests review from the matching owner(s) on every PR. To scale, add owners or path-specific globs to that file — do not duplicate the routing logic in prose here.
+
+While the project is solo, GitHub will not request review from a PR's own author, so CODEOWNERS alone does not provide a review on each PR. The quality gate is a self-review checklist run by the `pmo` agent before any PR is merged.
 
 Before merging a PR, verify:
 

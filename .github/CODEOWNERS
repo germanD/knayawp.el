@@ -1,0 +1,8 @@
+# CODEOWNERS — see https://docs.github.com/en/repositories/managing-your-repositories-settings-and-customizations/about-code-owners
+#
+# Owners listed here are auto-requested for review on any PR touching matching
+# paths. Path-specific entries override broader ones; the last matching line
+# wins. Add more owners or split paths (e.g., `kb/ @germanD @someone`) as the
+# project gains contributors.
+
+* @germanD
