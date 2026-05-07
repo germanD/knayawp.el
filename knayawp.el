@@ -567,14 +567,30 @@ Bind this to a prefix key of your choice, for example:
 
 ;;;; Global minor mode
 
+(defvar knayawp--saved-project-switch-commands nil
+  "Saved value of `project-switch-commands' for restoration.
+Captured by `knayawp--mode-on' before installing the auto-layout
+action and restored by `knayawp--mode-off'.")
+
 (defun knayawp--mode-on ()
   "Install global hooks and integration for `knayawp-mode'.
-Subsequent v0.1.3 work attaches behaviors here (project-switch
-auto-layout, `display-buffer-alist' routing).  No-op for now.")
+Replace `project-switch-commands' with `knayawp-layout-setup' so
+that switching to a project via `project-switch-project'
+automatically sets up the knayawp layout.  The previous value is
+saved for restoration by `knayawp--mode-off'."
+  (unless (eq project-switch-commands #'knayawp-layout-setup)
+    (setq knayawp--saved-project-switch-commands
+          project-switch-commands))
+  (setq project-switch-commands #'knayawp-layout-setup))
 
 (defun knayawp--mode-off ()
   "Tear down global hooks and integration for `knayawp-mode'.
-Inverse of `knayawp--mode-on'.  No-op for now.")
+Inverse of `knayawp--mode-on': restore `project-switch-commands'
+to the value saved at mode activation."
+  (when (eq project-switch-commands #'knayawp-layout-setup)
+    (setq project-switch-commands
+          knayawp--saved-project-switch-commands))
+  (setq knayawp--saved-project-switch-commands nil))
 
 ;;;###autoload
 (define-minor-mode knayawp-mode
