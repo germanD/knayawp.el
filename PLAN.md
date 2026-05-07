@@ -195,6 +195,8 @@ Resolved design decisions:
 - [ ] Side pane width not preserved after frame resize — #50
 - [ ] Managed transient splits in editor pane for side-pane-triggered visits — #52
 - [ ] Commit flow: focus should land on COMMIT_EDITMSG, not diff — #53
+- [ ] `knayawp--mode-off` can clobber user-set `project-switch-commands` — #60
+- [ ] Add `kb/` entry for `knayawp-mode` project-switch integration — #61
 
 ### v0.1.5 — Quick DevX Wins
 
