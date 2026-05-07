@@ -176,10 +176,22 @@ Note: `C-c LETTER` is reserved for users per GNU conventions. The package define
 - [ ] Auto-layout on `project-switch-project` — when mode is active, run `knayawp-layout-setup` on switch — #29
 - [ ] Handle edge cases: frame too narrow (skip right panels), missing magit/vterm
 - [ ] `defcustom knayawp-layout-hook` — run after layout is created
-- [ ] `winner-mode` integration — save/restore via winner before tearing down
 - [ ] `display-buffer-alist` entries so Emacs routes knayawp buffers correctly even when created outside the setup flow
-- [ ] Make right-pane slot heights configurable — #56
 - [ ] `defcustom knayawp-keymap-style` with tmux/byobu arrow-key navigation — #22
+
+### v0.1.4 — Layout Config Finetuning
+
+- [ ] winner-mode integration — save/restore via winner before tearing down — #32
+- [ ] Make right-pane slot heights configurable — #56
+- [ ] Magit transient buffers escape side window containment during commit — #48
+- [ ] C-x o cycles into side windows despite no-other-window parameter — #49
+- [ ] Side pane width not preserved after frame resize — #50
+- [ ] Managed transient splits in editor pane for side-pane-triggered visits — #52
+- [ ] Commit flow: focus should land on COMMIT_EDITMSG, not diff — #53
+
+### v0.1.5 — Quick DevX Wins
+
+*(No issues assigned yet — scope under KB-level discussion)*
 
 ---
 
