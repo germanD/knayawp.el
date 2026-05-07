@@ -80,12 +80,12 @@ A single command `knayawp-layout-setup` that transforms the current frame into t
 ### v0.1.0 — Core Layout Engine
 
 **Package scaffolding:**
-- [ ] Create `knayawp.el` with proper package header, `;;; Commentary:`, and `(provide 'knayawp)`
-- [ ] Define `knayawp` customization group
-- [ ] `defcustom knayawp-right-width` (default 0.4) — width of right pane as frame fraction
-- [ ] `defcustom knayawp-claude-command` (default `"claude"`) — CLI command for Claude Code
-- [ ] `defcustom knayawp-terminal-backend` (default `'vterm`) — `'vterm` or `'eat`
-- [ ] `defcustom knayawp-panels` — alist of panel specs with slots and height ratios:
+- [x] Create `knayawp.el` with proper package header, `;;; Commentary:`, and `(provide 'knayawp)` — #1
+- [x] Define `knayawp` customization group — #2
+- [x] `defcustom knayawp-right-width` (default 0.4) — width of right pane as frame fraction — #3
+- [x] `defcustom knayawp-claude-command` (default `"claude"`) — CLI command for Claude Code — #4
+- [x] `defcustom knayawp-terminal-backend` (default `'vterm`) — `'vterm` or `'eat` — #5
+- [x] `defcustom knayawp-panels` — alist of panel specs with slots and height ratios: — #6
   ```elisp
   '((magit  :slot -1 :height 0.33)
     (vterm  :slot  0 :height 0.33)
@@ -93,13 +93,13 @@ A single command `knayawp-layout-setup` that transforms the current frame into t
   ```
 
 **Terminal backend dispatch:**
-- [ ] `knayawp--make-terminal (name directory &optional command)` — dispatch to backend
-- [ ] `knayawp--make-terminal-vterm (name directory &optional command)` — vterm implementation
-- [ ] `knayawp--make-terminal-eat (name directory &optional command)` — eat implementation
-- [ ] Backend-specific `require` is deferred (only loaded when selected)
+- [x] `knayawp--make-terminal (name directory &optional command)` — dispatch to backend — #7
+- [x] `knayawp--make-terminal-vterm (name directory &optional command)` — vterm implementation — #8
+- [x] `knayawp--make-terminal-eat (name directory &optional command)` — eat implementation — #9
+- [x] Backend-specific `require` is deferred (only loaded when selected) — #9
 
 **Layout engine:**
-- [ ] `knayawp-layout-setup` interactive command:
+- [x] `knayawp-layout-setup` interactive command: — #10
   1. Set `window-sides-slots` to allow 3 right-side windows
   2. For each panel, create/reuse the project-scoped buffer
   3. Display each buffer via `display-buffer-in-side-window` with:
@@ -107,15 +107,15 @@ A single command `knayawp-layout-setup` that transforms the current frame into t
      - `(window-width . knayawp-right-width)`
      - `(window-parameters . ((no-delete-other-windows . t) (no-other-window . t)))`
   4. Select the main (editor) window
-- [ ] `knayawp-layout-teardown` — delete side windows, restore single-window editing
-- [ ] Project detection via `project-current` → derive project name for buffer naming
-- [ ] Buffer naming: `*knayawp-magit-PROJECT*`, `*knayawp-vterm-PROJECT*`, `*knayawp-claude-PROJECT*`
-- [ ] If tool buffer already exists for this project, reuse it
+- [x] `knayawp-layout-teardown` — delete side windows, restore single-window editing — #11
+- [x] Project detection via `project-current` → derive project name for buffer naming — #12
+- [x] Buffer naming: `*knayawp-magit-PROJECT*`, `*knayawp-vterm-PROJECT*`, `*knayawp-claude-PROJECT*` — #12
+- [x] If tool buffer already exists for this project, reuse it — #12
 
 **Panel buffer creation (all terminal panels go through the dispatch layer):**
-- [ ] `knayawp--get-or-create-magit-buffer (project-root)` — calls `magit-status` in the project root (not a terminal — no dispatch)
-- [ ] `knayawp--get-or-create-vterm-buffer (project-root project-name)` — calls `knayawp--make-terminal` with default shell
-- [ ] `knayawp--get-or-create-claude-buffer (project-root project-name)` — calls `knayawp--make-terminal` with `knayawp-claude-command`
+- [x] `knayawp--get-or-create-magit-buffer (project-root)` — calls `magit-status` in the project root (not a terminal — no dispatch) — #13
+- [x] `knayawp--get-or-create-vterm-buffer (project-root project-name)` — calls `knayawp--make-terminal` with default shell — #14
+- [x] `knayawp--get-or-create-claude-buffer (project-root project-name)` — calls `knayawp--make-terminal` with `knayawp-claude-command` — #15
 
 ### v0.1.1 — Control Pane Navigation (tmux-style)
 
@@ -147,6 +147,15 @@ Note: `C-c LETTER` is reserved for users per GNU conventions. The package define
 - Unzoom = re-create deleted side windows with their original buffers
 - Track zoom state in `knayawp--zoomed-panel`
 
+**Implementation (all closed):**
+- [x] Define `knayawp-command-map` keymap — #16
+- [x] Implement `knayawp-select-panel` (direct panel jump) — #17
+- [x] Implement `knayawp-next-panel` and `knayawp-prev-panel` — #18
+- [x] Implement `knayawp-select-editor` — #19
+- [x] Implement `knayawp-zoom-panel` — #20
+- [x] Implement `knayawp-toggle-panels` — #21
+- [x] Bind all v0.1.1 commands in `knayawp-command-map` — #23
+
 ### v0.1.2 — Magit Integration
 
 **Custom `magit-display-buffer-function`:**
@@ -163,7 +172,7 @@ Note: `C-c LETTER` is reserved for users per GNU conventions. The package define
 
 ### v0.1.3 — Mode & Polish
 
-- [ ] `knayawp-mode` global minor mode that hooks into `project-switch-project`
+- [x] `knayawp-mode` global minor mode that hooks into `project-switch-project` — #28
 - [ ] Auto-layout on `project-switch-project` — when mode is active, run `knayawp-layout-setup` on switch — #29
 - [ ] Handle edge cases: frame too narrow (skip right panels), missing magit/vterm
 - [ ] `defcustom knayawp-layout-hook` — run after layout is created
