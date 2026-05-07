@@ -179,6 +179,54 @@
           (should (not knayawp-mode)))
       (knayawp-mode -1))))
 
+;;;; project-switch-project auto-layout (#29)
+
+(ert-deftest knayawp-test-mode-on-installs-project-switch-action ()
+  "Enabling the mode replaces `project-switch-commands'."
+  (let ((project-switch-commands 'sentinel-original)
+        (knayawp--saved-project-switch-commands nil))
+    (unwind-protect
+        (progn
+          (knayawp--mode-on)
+          (should (eq project-switch-commands
+                      #'knayawp-layout-setup))
+          (should (eq knayawp--saved-project-switch-commands
+                      'sentinel-original)))
+      (knayawp--mode-off))))
+
+(ert-deftest knayawp-test-mode-off-restores-project-switch-action ()
+  "Disabling the mode restores the saved `project-switch-commands'."
+  (let ((project-switch-commands 'sentinel-original)
+        (knayawp--saved-project-switch-commands nil))
+    (knayawp--mode-on)
+    (knayawp--mode-off)
+    (should (eq project-switch-commands 'sentinel-original))
+    (should-not knayawp--saved-project-switch-commands)))
+
+(ert-deftest knayawp-test-mode-on-double-call-preserves-saved ()
+  "Calling `knayawp--mode-on' twice keeps the original saved value."
+  (let ((project-switch-commands 'sentinel-original)
+        (knayawp--saved-project-switch-commands nil))
+    (unwind-protect
+        (progn
+          (knayawp--mode-on)
+          (knayawp--mode-on)
+          (should (eq knayawp--saved-project-switch-commands
+                      'sentinel-original))
+          (should (eq project-switch-commands
+                      #'knayawp-layout-setup)))
+      (knayawp--mode-off))))
+
+(ert-deftest knayawp-test-mode-off-no-op-when-not-installed ()
+  "Disabling the mode is safe when our action is not installed.
+This guards against clobbering a user value if mode-off is called
+without a matching mode-on."
+  (let ((project-switch-commands 'user-value)
+        (knayawp--saved-project-switch-commands nil))
+    (knayawp--mode-off)
+    (should (eq project-switch-commands 'user-value))
+    (should-not knayawp--saved-project-switch-commands)))
+
 ;;;; Command map
 
 (ert-deftest knayawp-test-command-map-exists ()
