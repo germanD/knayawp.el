@@ -174,15 +174,22 @@ Note: `C-c LETTER` is reserved for users per GNU conventions. The package define
 
 - [x] `knayawp-mode` global minor mode that hooks into `project-switch-project` — #28
 - [ ] Auto-layout on `project-switch-project` — when mode is active, run `knayawp-layout-setup` on switch — #29
-- [ ] Handle edge cases: frame too narrow (skip right panels), missing magit/vterm
 - [ ] `defcustom knayawp-layout-hook` — run after layout is created
 - [ ] `display-buffer-alist` entries so Emacs routes knayawp buffers correctly even when created outside the setup flow
 - [ ] `defcustom knayawp-keymap-style` with tmux/byobu arrow-key navigation — #22
 
 ### v0.1.4 — Layout Config Finetuning
 
+Theme: make the layout shape configurable and resilient. Anchor: extend `knayawp-panels` plist with `:height`; teach setup/teardown to honour user dimensions and survive frame resizes; integrate winner-mode for undo.
+
+Resolved design decisions:
+- `knayawp-winner-integration-flag` defaults to `t` (only consulted when `winner-mode` itself is on, so passive-loading invariant P7 is preserved).
+- No new `kb/` file — the `:slot`/`:height` plist contract, the `window-height`-only-on-creation gotcha, and the `preserve-size` cons-cell semantics all live in the `knayawp-panels` docstring + Commentary.
+- #30 split: bulk-moved here in full; the "missing magit/vterm" half is already covered by the existing graceful-degradation paths, so the remaining work is the narrow-frame guard.
+
 - [ ] winner-mode integration — save/restore via winner before tearing down — #32
 - [ ] Make right-pane slot heights configurable — #56
+- [ ] Handle edge cases: frame too narrow (skip right panels), missing magit/vterm — #30
 - [ ] Magit transient buffers escape side window containment during commit — #48
 - [ ] C-x o cycles into side windows despite no-other-window parameter — #49
 - [ ] Side pane width not preserved after frame resize — #50
