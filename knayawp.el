@@ -115,6 +115,12 @@ Stored so it can be cleanly removed on teardown.")
   "The `display-buffer-alist' entry for `magit-process-mode' routing.
 Stored so it can be cleanly removed on teardown.")
 
+(defvar knayawp--panel-display-entries nil
+  "List of `display-buffer-alist' entries for knayawp panel buffers.
+Each entry routes buffers named `*knayawp-TYPE-*' to the side window
+slot configured for TYPE in `knayawp-panels'.  Stored so the entries
+can be removed precisely on `knayawp-mode' deactivation.")
+
 ;;;; Project detection
 
 (defun knayawp--project-root ()
@@ -565,6 +571,72 @@ Bind this to a prefix key of your choice, for example:
 
 (fset 'knayawp-command-map knayawp-command-map)
 
+;;;; Panel display routing
+
+(defun knayawp--panel-buffer-name-regexp (type)
+  "Return a regexp matching `*knayawp-TYPE-*' buffers for TYPE.
+TYPE is a panel-type symbol (for example `vterm' or `claude')."
+  (format "\\`\\*knayawp-%s-" (regexp-quote (symbol-name type))))
+
+(defun knayawp--make-panel-buffer-predicate (panel-spec)
+  "Return a `display-buffer-alist' predicate for PANEL-SPEC.
+The predicate takes (BUFFER-OR-NAME _ACTION) and returns non-nil
+only when BUFFER-OR-NAME matches the panel-type buffer-name pattern
+AND a knayawp side window for the panel's slot exists in the
+selected frame.  This gates the routing on layout presence so the
+entry is a no-op in unrelated frames."
+  (let ((regexp (knayawp--panel-buffer-name-regexp
+                 (knayawp--panel-type panel-spec)))
+        (slot (knayawp--panel-slot panel-spec)))
+    (lambda (buffer-or-name _action)
+      (let ((name (if (bufferp buffer-or-name)
+                      (buffer-name buffer-or-name)
+                    buffer-or-name)))
+        (and (stringp name)
+             (string-match-p regexp name)
+             (knayawp--side-window-for-slot slot))))))
+
+(defun knayawp--make-panel-display-entry (panel-spec)
+  "Build a `display-buffer-alist' entry for PANEL-SPEC.
+The entry's condition is a closure produced by
+`knayawp--make-panel-buffer-predicate'; the action routes the buffer
+to a right side window at the panel's slot."
+  (let ((slot (knayawp--panel-slot panel-spec)))
+    `(,(knayawp--make-panel-buffer-predicate panel-spec)
+      (display-buffer-reuse-window
+       display-buffer-in-side-window)
+      (side . right)
+      (slot . ,slot)
+      (window-width . ,knayawp-right-width)
+      (preserve-size . (t . nil))
+      (window-parameters
+       . ((no-delete-other-windows . t)
+          (no-other-window . t))))))
+
+(defun knayawp--install-panel-display-routing ()
+  "Install `display-buffer-alist' entries for knayawp panel buffers.
+For each panel in `knayawp-panels', push an entry that routes
+buffers named `*knayawp-TYPE-*' to the configured side-window slot
+when a knayawp side window exists in the selected frame.  The
+entries are recorded in `knayawp--panel-display-entries' so
+`knayawp--remove-panel-display-routing' can take them out cleanly.
+Idempotent: if entries are already installed, do nothing."
+  (unless knayawp--panel-display-entries
+    (let ((entries (mapcar #'knayawp--make-panel-display-entry
+                           knayawp-panels)))
+      (setq knayawp--panel-display-entries entries)
+      (dolist (entry entries)
+        (push entry display-buffer-alist)))))
+
+(defun knayawp--remove-panel-display-routing ()
+  "Remove panel buffer routing from `display-buffer-alist'.
+Inverse of `knayawp--install-panel-display-routing': drop each
+recorded entry from `display-buffer-alist' and clear
+`knayawp--panel-display-entries'."
+  (dolist (entry knayawp--panel-display-entries)
+    (setq display-buffer-alist (delq entry display-buffer-alist)))
+  (setq knayawp--panel-display-entries nil))
+
 ;;;; Global minor mode
 
 (defvar knayawp--saved-project-switch-commands nil
@@ -577,20 +649,25 @@ action and restored by `knayawp--mode-off'.")
 Replace `project-switch-commands' with `knayawp-layout-setup' so
 that switching to a project via `project-switch-project'
 automatically sets up the knayawp layout.  The previous value is
-saved for restoration by `knayawp--mode-off'."
+saved for restoration by `knayawp--mode-off'.  Also install the
+`display-buffer-alist' entries that route `*knayawp-TYPE-PROJECT*'
+buffers to their configured side-window slots."
   (unless (eq project-switch-commands #'knayawp-layout-setup)
     (setq knayawp--saved-project-switch-commands
           project-switch-commands))
-  (setq project-switch-commands #'knayawp-layout-setup))
+  (setq project-switch-commands #'knayawp-layout-setup)
+  (knayawp--install-panel-display-routing))
 
 (defun knayawp--mode-off ()
   "Tear down global hooks and integration for `knayawp-mode'.
 Inverse of `knayawp--mode-on': restore `project-switch-commands'
-to the value saved at mode activation."
+to the value saved at mode activation and remove the panel buffer
+`display-buffer-alist' entries."
   (when (eq project-switch-commands #'knayawp-layout-setup)
     (setq project-switch-commands
           knayawp--saved-project-switch-commands))
-  (setq knayawp--saved-project-switch-commands nil))
+  (setq knayawp--saved-project-switch-commands nil)
+  (knayawp--remove-panel-display-routing))
 
 ;;;###autoload
 (define-minor-mode knayawp-mode

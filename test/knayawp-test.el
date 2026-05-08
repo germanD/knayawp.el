@@ -482,6 +482,149 @@ Teardown removes it."
             (should (null display-buffer-alist)))
         (setq magit-display-buffer-function original)))))
 
+;;;; Panel display routing (#33)
+
+(ert-deftest knayawp-test-panel-display-entries-initially-nil ()
+  "Panel display entries are nil before installation."
+  (should-not knayawp--panel-display-entries))
+
+(ert-deftest knayawp-test-panel-buffer-name-regexp ()
+  "Predicate regexp matches `*knayawp-TYPE-*' buffers only."
+  (let ((re (knayawp--panel-buffer-name-regexp 'vterm)))
+    (should (string-match-p re "*knayawp-vterm-foo*"))
+    (should (string-match-p re "*knayawp-vterm-my-app*"))
+    (should-not (string-match-p re "*knayawp-claude-foo*"))
+    (should-not (string-match-p re "*scratch*"))
+    (should-not (string-match-p re "vterm-foo"))))
+
+(ert-deftest knayawp-test-panel-buffer-predicate-no-window ()
+  "Predicate returns nil when no knayawp side window exists.
+In batch mode there are never side windows, so the predicate must
+return nil regardless of the buffer name match."
+  (let* ((spec '(vterm :slot 0))
+         (pred (knayawp--make-panel-buffer-predicate spec))
+         (buf (get-buffer-create "*knayawp-vterm-testproj*")))
+    (unwind-protect
+        (progn
+          (should-not (funcall pred buf nil))
+          (should-not (funcall pred "*knayawp-vterm-testproj*" nil)))
+      (kill-buffer buf))))
+
+(ert-deftest knayawp-test-panel-buffer-predicate-rejects-non-match ()
+  "Predicate rejects buffers that do not match the type pattern."
+  (cl-letf (((symbol-function 'knayawp--side-window-for-slot)
+             (lambda (_slot) 'fake-window)))
+    (let* ((spec '(vterm :slot 0))
+           (pred (knayawp--make-panel-buffer-predicate spec)))
+      ;; Even with a "side window" present, name mismatch returns nil.
+      (should-not (funcall pred "*scratch*" nil))
+      (should-not (funcall pred "*knayawp-claude-foo*" nil))
+      ;; Matching name with side window present returns truthy.
+      (should (funcall pred "*knayawp-vterm-foo*" nil)))))
+
+(ert-deftest knayawp-test-install-panel-display-routing-adds-entries ()
+  "Install adds one entry per panel to `display-buffer-alist'."
+  (let ((display-buffer-alist nil)
+        (knayawp--panel-display-entries nil)
+        (knayawp-panels '((magit  :slot -1)
+                          (vterm  :slot  0)
+                          (claude :slot  1))))
+    (unwind-protect
+        (progn
+          (knayawp--install-panel-display-routing)
+          (should (= 3 (length knayawp--panel-display-entries)))
+          (dolist (entry knayawp--panel-display-entries)
+            (should (memq entry display-buffer-alist))
+            (should (functionp (car entry)))))
+      (knayawp--remove-panel-display-routing))))
+
+(ert-deftest knayawp-test-remove-panel-display-routing-clears-entries ()
+  "Remove takes installed entries out of `display-buffer-alist'."
+  (let ((display-buffer-alist nil)
+        (knayawp--panel-display-entries nil)
+        (knayawp-panels '((magit  :slot -1)
+                          (vterm  :slot  0)
+                          (claude :slot  1))))
+    (knayawp--install-panel-display-routing)
+    (knayawp--remove-panel-display-routing)
+    (should (null knayawp--panel-display-entries))
+    (should (null display-buffer-alist))))
+
+(ert-deftest knayawp-test-panel-display-routing-roundtrip ()
+  "Round-trip leaves `display-buffer-alist' unchanged."
+  (let* ((sentinel '("sentinel" display-buffer-pop-up-window))
+         (display-buffer-alist (list sentinel))
+         (before (copy-sequence display-buffer-alist))
+         (knayawp--panel-display-entries nil)
+         (knayawp-panels '((magit  :slot -1)
+                           (vterm  :slot  0)
+                           (claude :slot  1))))
+    (knayawp--install-panel-display-routing)
+    (knayawp--remove-panel-display-routing)
+    (should (equal before display-buffer-alist))))
+
+(ert-deftest knayawp-test-install-panel-display-routing-idempotent ()
+  "Double install does not duplicate entries."
+  (let ((display-buffer-alist nil)
+        (knayawp--panel-display-entries nil)
+        (knayawp-panels '((magit  :slot -1)
+                          (vterm  :slot  0)
+                          (claude :slot  1))))
+    (unwind-protect
+        (progn
+          (knayawp--install-panel-display-routing)
+          (knayawp--install-panel-display-routing)
+          (should (= 3 (length knayawp--panel-display-entries)))
+          (should (= 3 (length display-buffer-alist))))
+      (knayawp--remove-panel-display-routing))))
+
+(ert-deftest knayawp-test-mode-on-installs-panel-routing ()
+  "Enabling `knayawp-mode' installs panel display entries."
+  (let ((display-buffer-alist nil)
+        (project-switch-commands 'sentinel-original)
+        (knayawp--saved-project-switch-commands nil)
+        (knayawp--panel-display-entries nil)
+        (knayawp-panels '((magit  :slot -1)
+                          (vterm  :slot  0)
+                          (claude :slot  1))))
+    (unwind-protect
+        (progn
+          (knayawp--mode-on)
+          (should (= 3 (length knayawp--panel-display-entries)))
+          (should (= 3 (length display-buffer-alist))))
+      (knayawp--mode-off))))
+
+(ert-deftest knayawp-test-mode-off-removes-panel-routing ()
+  "Disabling `knayawp-mode' removes panel display entries."
+  (let ((display-buffer-alist nil)
+        (project-switch-commands 'sentinel-original)
+        (knayawp--saved-project-switch-commands nil)
+        (knayawp--panel-display-entries nil)
+        (knayawp-panels '((magit  :slot -1)
+                          (vterm  :slot  0)
+                          (claude :slot  1))))
+    (knayawp--mode-on)
+    (knayawp--mode-off)
+    (should (null knayawp--panel-display-entries))
+    (should (null display-buffer-alist))))
+
+(ert-deftest knayawp-test-mode-double-on-does-not-duplicate-routing ()
+  "Calling `knayawp--mode-on' twice does not duplicate entries."
+  (let ((display-buffer-alist nil)
+        (project-switch-commands 'sentinel-original)
+        (knayawp--saved-project-switch-commands nil)
+        (knayawp--panel-display-entries nil)
+        (knayawp-panels '((magit  :slot -1)
+                          (vterm  :slot  0)
+                          (claude :slot  1))))
+    (unwind-protect
+        (progn
+          (knayawp--mode-on)
+          (knayawp--mode-on)
+          (should (= 3 (length knayawp--panel-display-entries)))
+          (should (= 3 (length display-buffer-alist))))
+      (knayawp--mode-off))))
+
 ;;;; No project signals error
 
 (ert-deftest knayawp-test-no-project-error ()
