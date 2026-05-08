@@ -249,10 +249,81 @@ without a matching mode-on."
               (lookup-key knayawp-command-map "0")))
   (should (eq 'knayawp-toggle-panels
               (lookup-key knayawp-command-map "s")))
-  ;; 1/2/3 are lambdas, just verify they're bound
-  (should (lookup-key knayawp-command-map "1"))
-  (should (lookup-key knayawp-command-map "2"))
-  (should (lookup-key knayawp-command-map "3")))
+  ;; 1/2/3 dispatch directly through named helpers
+  (should (eq 'knayawp--select-panel-1
+              (lookup-key knayawp-command-map "1")))
+  (should (eq 'knayawp--select-panel-2
+              (lookup-key knayawp-command-map "2")))
+  (should (eq 'knayawp--select-panel-3
+              (lookup-key knayawp-command-map "3"))))
+
+;;;; Keymap style
+
+(ert-deftest knayawp-test-keymap-style-default-value ()
+  "`knayawp-keymap-style' defaults to `default'."
+  (should (eq 'default (default-value 'knayawp-keymap-style))))
+
+(ert-deftest knayawp-test-build-default-style-no-arrows ()
+  "Default style does not bind <up>, <down>, S-<up>, or S-<down>."
+  (let* ((knayawp-keymap-style 'default)
+         (map (knayawp--build-command-map)))
+    (should (eq 'knayawp-next-panel (lookup-key map "n")))
+    (should (eq 'knayawp-prev-panel (lookup-key map "p")))
+    (should-not (lookup-key map (kbd "<up>")))
+    (should-not (lookup-key map (kbd "<down>")))
+    (should-not (lookup-key map (kbd "S-<up>")))
+    (should-not (lookup-key map (kbd "S-<down>")))))
+
+(ert-deftest knayawp-test-build-tmux-style-arrow-bindings ()
+  "Tmux style binds <up>/<down> to panel navigation."
+  (let* ((knayawp-keymap-style 'tmux)
+         (map (knayawp--build-command-map)))
+    (should (eq 'knayawp-prev-panel (lookup-key map (kbd "<up>"))))
+    (should (eq 'knayawp-next-panel (lookup-key map (kbd "<down>"))))
+    ;; Letter fallback still works.
+    (should (eq 'knayawp-layout-setup (lookup-key map "l")))
+    (should (eq 'knayawp-next-panel (lookup-key map "n")))
+    ;; <left>/<right> are reserved for v0.2 project tabs and unbound now.
+    (should-not (lookup-key map (kbd "<left>")))
+    (should-not (lookup-key map (kbd "<right>")))))
+
+(ert-deftest knayawp-test-build-byobu-style-shift-arrow-bindings ()
+  "Byobu style binds S-<up>/S-<down> to panel navigation."
+  (let* ((knayawp-keymap-style 'byobu)
+         (map (knayawp--build-command-map)))
+    (should (eq 'knayawp-prev-panel (lookup-key map (kbd "S-<up>"))))
+    (should (eq 'knayawp-next-panel (lookup-key map (kbd "S-<down>"))))
+    ;; Letter fallback still works.
+    (should (eq 'knayawp-zoom-panel (lookup-key map "z")))
+    (should (eq 'knayawp-toggle-panels (lookup-key map "s")))
+    ;; S-<left>/S-<right> are reserved for v0.2 and unbound now.
+    (should-not (lookup-key map (kbd "S-<left>")))
+    (should-not (lookup-key map (kbd "S-<right>")))))
+
+(ert-deftest knayawp-test-build-unknown-style-errors ()
+  "Building the keymap with an unknown style signals user-error."
+  (let ((knayawp-keymap-style 'banana))
+    (should-error (knayawp--build-command-map) :type 'user-error)))
+
+(ert-deftest knayawp-test-rebuild-command-map-mutates-in-place ()
+  "`knayawp-rebuild-command-map' mutates the existing keymap object.
+This preserves any prefix binding the user installed against
+`knayawp-command-map'."
+  (let ((original-object knayawp-command-map)
+        (knayawp-keymap-style 'tmux))
+    (unwind-protect
+        (progn
+          (knayawp-rebuild-command-map)
+          ;; Same keymap object — prefix bindings still work.
+          (should (eq original-object knayawp-command-map))
+          ;; New style took effect.
+          (should (eq 'knayawp-prev-panel
+                      (lookup-key knayawp-command-map (kbd "<up>"))))
+          (should (eq 'knayawp-next-panel
+                      (lookup-key knayawp-command-map (kbd "<down>")))))
+      ;; Restore default style for subsequent tests.
+      (setq knayawp-keymap-style 'default)
+      (knayawp-rebuild-command-map))))
 
 ;;;; Buffer reuse
 
