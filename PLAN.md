@@ -173,10 +173,10 @@ Note: `C-c LETTER` is reserved for users per GNU conventions. The package define
 ### v0.1.3 — Mode & Polish
 
 - [x] `knayawp-mode` global minor mode that hooks into `project-switch-project` — #28
-- [ ] Auto-layout on `project-switch-project` — when mode is active, run `knayawp-layout-setup` on switch — #29
-- [ ] `defcustom knayawp-layout-hook` — run after layout is created
-- [ ] `display-buffer-alist` entries so Emacs routes knayawp buffers correctly even when created outside the setup flow
-- [ ] `defcustom knayawp-keymap-style` with tmux/byobu arrow-key navigation — #22
+- [x] Auto-layout on `project-switch-project` — when mode is active, run `knayawp-layout-setup` on switch — #29
+- [x] `defcustom knayawp-layout-hook` — run after layout is created — #31
+- [x] `display-buffer-alist` entries so Emacs routes knayawp buffers correctly even when created outside the setup flow — #33
+- [x] `defcustom knayawp-keymap-style` with tmux/byobu arrow-key navigation — #22
 
 ### v0.1.4 — Layout Config Finetuning
 
@@ -198,6 +198,8 @@ Resolved design decisions:
 - [ ] `knayawp--mode-off` can clobber user-set `project-switch-commands` — #60
 - [ ] Add `kb/` entry for `knayawp-mode` project-switch integration — #61
 - [ ] Re-install display-buffer-alist routing when knayawp-panels changes — #65
+- [ ] Positive-path ERT for `knayawp-layout-hook` — #66
+- [ ] `:set` callback for `knayawp-keymap-style` to auto-rebuild command map — #67
 
 ### v0.1.5 — Quick DevX Wins
 
