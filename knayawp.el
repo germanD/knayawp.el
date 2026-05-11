@@ -81,6 +81,34 @@ behavior."
   :type 'boolean
   :group 'knayawp)
 
+(defcustom knayawp-keymap-style 'default
+  "Keybinding style for the variable `knayawp-command-map'.
+The same set of commands is bound under every style; only the
+keys differ.
+
+`default' uses numbered keys (1/2/3) and n/p for panel
+navigation.  This is the historical layout and the safest choice
+for users on terminals without arrow-key support.
+
+`tmux' adds arrow-key navigation inspired by tmux pane bindings:
+<up>/<down> select the previous/next panel within the control
+pane, while <left>/<right> are reserved for previous/next project
+tab (wired in v0.2).  All numbered and letter keys remain bound
+as a fallback.
+
+`byobu' adds shift-arrow navigation inspired by byobu's
+Shift-Function-arrow window bindings: S-<up>/S-<down> select the
+previous/next panel and S-<left>/S-<right> are reserved for
+previous/next project tab (wired in v0.2).  All numbered and
+letter keys remain bound as a fallback.
+
+Changing this value at runtime does not rebuild the keymap
+automatically; call `knayawp-rebuild-command-map' afterwards."
+  :type '(choice (const :tag "Default (1/2/3, n/p)" default)
+                 (const :tag "tmux (arrow keys)" tmux)
+                 (const :tag "byobu (shift-arrow keys)" byobu))
+  :group 'knayawp)
+
 (defcustom knayawp-panels
   '((magit  :slot -1)
     (vterm  :slot  0)
@@ -563,24 +591,91 @@ a side window."
 
 ;;;; Command map
 
-(defvar knayawp-command-map
+(defun knayawp--select-panel-1 ()
+  "Select panel 1 in the control pane."
+  (interactive)
+  (knayawp-select-panel 1))
+
+(defun knayawp--select-panel-2 ()
+  "Select panel 2 in the control pane."
+  (interactive)
+  (knayawp-select-panel 2))
+
+(defun knayawp--select-panel-3 ()
+  "Select panel 3 in the control pane."
+  (interactive)
+  (knayawp-select-panel 3))
+
+(defun knayawp--bind-common-keys (map)
+  "Install the style-independent letter and digit bindings on MAP.
+These bindings are shared by every value of `knayawp-keymap-style'
+so that layout management, direct panel selection, zoom, editor
+return, and toggle-panels are always reachable without an arrow
+key."
+  (define-key map "l" #'knayawp-layout-setup)
+  (define-key map "q" #'knayawp-layout-teardown)
+  (define-key map "1" #'knayawp--select-panel-1)
+  (define-key map "2" #'knayawp--select-panel-2)
+  (define-key map "3" #'knayawp--select-panel-3)
+  (define-key map "n" #'knayawp-next-panel)
+  (define-key map "p" #'knayawp-prev-panel)
+  (define-key map "z" #'knayawp-zoom-panel)
+  (define-key map "0" #'knayawp-select-editor)
+  (define-key map "s" #'knayawp-toggle-panels)
+  map)
+
+(defun knayawp--build-command-map ()
+  "Return a fresh sparse keymap configured for `knayawp-keymap-style'.
+Every style binds the full command surface (layout setup and
+teardown, direct panel selection, next/previous panel, zoom,
+select-editor, toggle-panels).  Only the keys differ between
+styles.  See `knayawp-keymap-style' for the per-style layout."
   (let ((map (make-sparse-keymap)))
-    (define-key map "l" #'knayawp-layout-setup)
-    (define-key map "q" #'knayawp-layout-teardown)
-    (define-key map "1" (lambda () (interactive) (knayawp-select-panel 1)))
-    (define-key map "2" (lambda () (interactive) (knayawp-select-panel 2)))
-    (define-key map "3" (lambda () (interactive) (knayawp-select-panel 3)))
-    (define-key map "n" #'knayawp-next-panel)
-    (define-key map "p" #'knayawp-prev-panel)
-    (define-key map "z" #'knayawp-zoom-panel)
-    (define-key map "0" #'knayawp-select-editor)
-    (define-key map "s" #'knayawp-toggle-panels)
-    map)
+    (knayawp--bind-common-keys map)
+    (pcase knayawp-keymap-style
+      ('default map)
+      ('tmux
+       ;; tmux pane navigation: <up>/<down> step through panels.
+       ;; <left>/<right> are reserved for project-tab navigation
+       ;; (wired in v0.2); leave them unbound for now so the user
+       ;; gets a clear "key not bound" hint instead of a surprise.
+       (define-key map (kbd "<up>")   #'knayawp-prev-panel)
+       (define-key map (kbd "<down>") #'knayawp-next-panel)
+       map)
+      ('byobu
+       ;; byobu Shift-Function-arrow style: S-<up>/S-<down> step
+       ;; through panels.  S-<left>/S-<right> reserved for project
+       ;; tabs (v0.2).
+       (define-key map (kbd "S-<up>")   #'knayawp-prev-panel)
+       (define-key map (kbd "S-<down>") #'knayawp-next-panel)
+       map)
+      (_ (user-error "Unknown knayawp-keymap-style: %s"
+                     knayawp-keymap-style)))))
+
+(defvar knayawp-command-map (knayawp--build-command-map)
   "Keymap for knayawp commands.
 Bind this to a prefix key of your choice, for example:
-  (global-set-key (kbd \"C-c k\") knayawp-command-map)")
+  (global-set-key (kbd \"C-c k\") knayawp-command-map)
+The concrete key layout depends on `knayawp-keymap-style'.  After
+changing that option, call `knayawp-rebuild-command-map' to apply
+the new style without restarting Emacs.")
 
 (fset 'knayawp-command-map knayawp-command-map)
+
+;;;###autoload
+(defun knayawp-rebuild-command-map ()
+  "Rebuild the variable `knayawp-command-map' from `knayawp-keymap-style'.
+Call this after changing `knayawp-keymap-style' at runtime.  The
+underlying keymap object is mutated in place so existing prefix
+bindings (e.g. `C-c k') keep working without rebinding."
+  (interactive)
+  (let ((fresh (knayawp--build-command-map)))
+    ;; Mutate the existing keymap object in place so any prefix
+    ;; binding the user installed continues to resolve.
+    (setcdr knayawp-command-map (cdr fresh)))
+  (fset 'knayawp-command-map knayawp-command-map)
+  (message "knayawp: rebuilt command map for %s style"
+           knayawp-keymap-style))
 
 ;;;; Panel display routing
 
