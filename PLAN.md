@@ -197,6 +197,7 @@ Resolved design decisions:
 - [ ] Commit flow: focus should land on COMMIT_EDITMSG, not diff — #53
 - [ ] `knayawp--mode-off` can clobber user-set `project-switch-commands` — #60
 - [ ] Add `kb/` entry for `knayawp-mode` project-switch integration — #61
+- [ ] Re-install display-buffer-alist routing when knayawp-panels changes — #65
 
 ### v0.1.5 — Quick DevX Wins
 
