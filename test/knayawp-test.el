@@ -490,4 +490,23 @@ Teardown removes it."
     (should-error (knayawp--project-root)
                   :type 'user-error)))
 
+;;;; Layout hook (#31)
+
+(ert-deftest knayawp-test-layout-hook-defined ()
+  "`knayawp-layout-hook' is defined and defaults to nil."
+  (should (boundp 'knayawp-layout-hook))
+  (should (null (default-value 'knayawp-layout-hook))))
+
+(ert-deftest knayawp-test-layout-hook-not-run-on-error ()
+  "Hook does not run when `knayawp-layout-setup' errors early.
+When no project is found at `default-directory',
+`knayawp-layout-setup' must signal a user-error before reaching
+the end of its body, leaving `knayawp-layout-hook' unfired."
+  (let* ((counter 0)
+         (knayawp-layout-hook
+          (list (lambda () (cl-incf counter))))
+         (default-directory "/"))
+    (should-error (knayawp-layout-setup) :type 'user-error)
+    (should (= 0 counter))))
+
 ;;; knayawp-test.el ends here

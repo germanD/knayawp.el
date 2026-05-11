@@ -95,6 +95,15 @@ configuration is not yet exposed."
                                    :value-type integer))
   :group 'knayawp)
 
+(defcustom knayawp-layout-hook nil
+  "Hook run after `knayawp-layout-setup' creates the layout.
+Functions on this hook are called with no arguments, after all
+panels have been displayed and the editor window has been
+selected.  At that point the layout is fully constructed, so
+hook functions see the final window configuration."
+  :type 'hook
+  :group 'knayawp)
+
 ;;;; Internal state
 
 (defvar knayawp--active-layouts nil
@@ -385,7 +394,9 @@ left and is selected when done."
     ;; Install magit integration
     (knayawp--setup-magit-integration)
     ;; Select the main editor window
-    (knayawp--select-editor-window)))
+    (knayawp--select-editor-window)
+    ;; Run user hook last, so functions see the final state
+    (run-hooks 'knayawp-layout-hook)))
 
 (defun knayawp-layout-teardown ()
   "Remove the knayawp control pane from the current frame.
