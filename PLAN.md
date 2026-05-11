@@ -200,6 +200,7 @@ Resolved design decisions:
 - [ ] Re-install display-buffer-alist routing when knayawp-panels changes — #65
 - [ ] Positive-path ERT for `knayawp-layout-hook` — #66
 - [ ] `:set` callback for `knayawp-keymap-style` to auto-rebuild command map — #67
+- [ ] Alternative layouts for narrow screens (side pane as overlay) — #51
 
 ### v0.1.5 — Quick DevX Wins
 
