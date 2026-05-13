@@ -723,4 +723,76 @@ the end of its body, leaving `knayawp-layout-hook' unfired."
     (should-error (knayawp-layout-setup) :type 'user-error)
     (should (= 0 counter))))
 
+;;;; other-window isolation flag (#49)
+
+(ert-deftest knayawp-test-isolate-other-window-flag-default ()
+  "`knayawp-isolate-other-window-flag' defaults to t."
+  (should (eq t (default-value 'knayawp-isolate-other-window-flag))))
+
+(ert-deftest knayawp-test-side-window-parameters-with-flag ()
+  "Helper includes `no-other-window' when flag is non-nil."
+  (let ((knayawp-isolate-other-window-flag t))
+    (let ((params (knayawp--side-window-parameters)))
+      (should (eq t (alist-get 'no-delete-other-windows params)))
+      (should (eq t (alist-get 'no-other-window params))))))
+
+(ert-deftest knayawp-test-side-window-parameters-without-flag ()
+  "Helper omits `no-other-window' when flag is nil."
+  (let ((knayawp-isolate-other-window-flag nil))
+    (let ((params (knayawp--side-window-parameters)))
+      (should (eq t (alist-get 'no-delete-other-windows params)))
+      (should (null (assq 'no-other-window params))))))
+
+;;;; Frame-resize width restoration (#50)
+
+(ert-deftest knayawp-test-frame-widths-initially-nil ()
+  "`knayawp--frame-widths' defaults to nil."
+  (should (null (default-value 'knayawp--frame-widths))))
+
+(ert-deftest knayawp-test-side-windows-in-frame-empty ()
+  "`knayawp--side-windows-in-frame' returns nil when no side windows."
+  ;; In batch the selected frame has no side windows.
+  (should (null (knayawp--side-windows-in-frame (selected-frame)))))
+
+(ert-deftest knayawp-test-restore-right-width-records-first-call ()
+  "First call records the frame width without invoking apply.
+On the very first invocation for a frame, there is no recorded
+last-width, so the hook must seed the alist and skip the resize
+helper."
+  (let ((knayawp--frame-widths nil)
+        (calls 0))
+    (cl-letf (((symbol-function 'knayawp--apply-right-width)
+               (lambda (_frame) (cl-incf calls))))
+      (knayawp--restore-right-width-on-resize (selected-frame))
+      (should (= 0 calls))
+      (should (alist-get (selected-frame) knayawp--frame-widths)))))
+
+(ert-deftest knayawp-test-restore-right-width-skips-when-unchanged ()
+  "Subsequent calls with the same frame width are a no-op."
+  (let ((knayawp--frame-widths nil)
+        (calls 0))
+    (cl-letf (((symbol-function 'knayawp--apply-right-width)
+               (lambda (_frame) (cl-incf calls))))
+      ;; First call seeds the width but does not apply.
+      (knayawp--restore-right-width-on-resize (selected-frame))
+      ;; Second call with unchanged width is a no-op.
+      (knayawp--restore-right-width-on-resize (selected-frame))
+      (should (= 0 calls)))))
+
+(ert-deftest knayawp-test-restore-right-width-fires-on-width-change ()
+  "Apply is invoked when frame width changes between calls."
+  (let ((knayawp--frame-widths nil)
+        (calls 0))
+    (cl-letf (((symbol-function 'knayawp--apply-right-width)
+               (lambda (_frame) (cl-incf calls))))
+      ;; Seed with the current width.
+      (knayawp--restore-right-width-on-resize (selected-frame))
+      (should (= 0 calls))
+      ;; Simulate an external width change by mutating the recorded
+      ;; entry so the next invocation sees a delta.
+      (setf (alist-get (selected-frame) knayawp--frame-widths)
+            (1- (frame-width (selected-frame))))
+      (knayawp--restore-right-width-on-resize (selected-frame))
+      (should (= 1 calls)))))
+
 ;;; knayawp-test.el ends here
