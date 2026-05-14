@@ -208,6 +208,33 @@ Resolved design decisions:
 
 ---
 
+## v0.3 — Alternative Layouts and Panel Rotation
+
+Note: v0.3.0 is filed here, after v0.1.5 and before the v0.2.x tab-bar
+sections, because it is the next active-development milestone. v0.2.x
+(tab-bar workspaces) is planned work that has not yet started; v0.3.0 is
+the promoted Idea 1 feature line which the user has scoped and committed.
+Chronological milestone order in the file is: v0.1.x → v0.3.0 → v0.2.x,
+reflecting development priority rather than version number order.
+
+### v0.3.0 — Named Layouts, Panel Rotation, and Keymap Migration
+
+Theme: scale the layout across screen sizes without manual reconfiguration.
+Introduces `knayawp-layouts` + `knayawp-default-layout`, refactors zoom as
+an ephemeral solo layout, adds interactive layout selection and panel
+rotation (`f`/`b`), opt-in auto-detect, a soft-deprecation cycle for `n`/`p`,
+and the final keymap flip as the release gate.
+
+- [ ] Introduce `knayawp-layouts` + `knayawp-default-layout` defcustoms; add `knayawp--apply-layout` — #69
+- [ ] Reimplement `knayawp-zoom-panel` as ephemeral solo layout; keep `knayawp--zoomed-panel` as compat shim — #70
+- [ ] Add `knayawp-select-layout` interactive command; bind to `L` — #71
+- [ ] Add `knayawp-rotate-next` / `knayawp-rotate-prev`; bind to `f` / `b`; mode-line indicator — #72
+- [ ] Add `knayawp-layout-auto-select-flag` and `knayawp-narrow-threshold-columns` defcustoms — #73
+- [ ] Deprecate `knayawp-next-panel` / `knayawp-prev-panel` via `make-obsolete`; document upcoming flip — #74
+- [ ] Flip `n`/`p` in `knayawp-command-map` to intra-pane window cycling; document migration — #75
+
+---
+
 ## v0.2 — Project Navigation Bar
 
 ### Goal

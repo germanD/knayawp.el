@@ -1,6 +1,6 @@
 ---
 title: knayawp.el Forward-Looking Ideas
-last-updated: 2026-05-01
+last-updated: 2026-05-12
 status: incubator
 ---
 
@@ -21,190 +21,18 @@ Status legend per idea:
 
 ## Idea 1 — Alternative layouts and panel rotation
 
-**Status:** ready (pending user sign-off on rotation keys and milestone scope)
+**Status:** promoted to v0.3.0 milestone
 
 ### Motivation
 
 The current v0.1 layout pins all three tool panels (magit, vterm, claude) into
-the right-side pane simultaneously. On a wide monitor that's fine; on a laptop
-screen the three panels become uncomfortably short and the editor pane gets
-squeezed. We want the package to scale gracefully across screen sizes without
-forcing the user to manually reconfigure `knayawp-panels` each time they
-undock.
+the right-side pane simultaneously. On a laptop screen the three panels become
+uncomfortably short and the editor pane gets squeezed. Named layouts with a
+panel-rotation primitive let the package scale gracefully across screen sizes.
 
-### Layout taxonomy
-
-A **layout** is a named selection of which panels are visible on the side
-pane and in what order; the rest of the configured panels are *stashed* (alive
-as buffers, just not displayed). Three layouts ship by default:
-
-- **`wide`** (current behavior, default): all three panels visible.
-- **`narrow`**: two visible (default `magit` + `claude`), `vterm` stashed.
-- **`solo`**: one visible, the other two stashed — effectively a permanent
-  zoom for laptop-sized screens.
-
-The `narrow` layout is the interesting one: it introduces a tmux-style
-"current visible panels + stash" model with a rotation primitive that swaps
-a stashed panel into a visible slot.
-
-### Data model
-
-Two defcustoms split responsibilities cleanly:
-
-- **`knayawp-panels`** stays the catalogue of *what panels exist and where
-  they live* (slot, height, type). Existing user values continue to work.
-- **`knayawp-layouts`** is new. It declares *which subset of panels is
-  visible right now* under a given layout name. Slot/type metadata stays in
-  `knayawp-panels` so layouts don't redeclare it.
-
-```elisp
-(defcustom knayawp-layouts
-  '((wide   :visible (magit vterm claude))
-    (narrow :visible (magit claude) :stash (vterm))
-    (solo   :visible (claude)       :stash (magit vterm)))
-  "Named layouts mapping panel selections to display state."
-  :type '(alist :key-type symbol :value-type plist)
-  :group 'knayawp)
-
-(defcustom knayawp-default-layout 'wide
-  "Layout selected by `knayawp-layout-setup' when none is given."
-  :type 'symbol
-  :group 'knayawp)
-```
-
-If `knayawp-layouts` is unset, a `wide`-equivalent layout is derived from
-`knayawp-panels` so existing users see no change.
-
-### Decisions (synthesis from design pass)
-
-The architect, prior-art, and risk/migration agents converged on the
-following positions. Disagreements explicitly noted.
-
-1. **Zoom subsumes into `solo`.** `knayawp-zoom-panel` becomes a thin wrapper
-   that applies an ephemeral `solo-<panel>` layout, recording the prior
-   layout in `knayawp--pre-zoom-layout`. `knayawp--zoomed-panel` survives
-   one minor cycle as a compat shim updated by the layout system; it can
-   be retired once external configs that touch it have time to migrate.
-   The public `knayawp-zoom-panel` command stays forever.
-
-2. **Explicit layout selection first; auto-detect is opt-in.** A new
-   `knayawp-select-layout` command (completing-read over `knayawp-layouts`)
-   is bound to `L` under the prefix. `knayawp-layout-auto-select-flag`
-   defaults to `nil` and is added later, gated on real-world threshold
-   data. Auto-detect on tiling WMs (i3/sway) risks fighting the user, so
-   it never defaults on inside 0.x.
-
-3. **Persistence per project deferred to v0.2.x.** Tab-bar workspaces are
-   the natural carrier for per-project layout state — wiring layout
-   persistence into a tab parameter is one line at that point. Inventing a
-   separate per-project storage now means migration churn later.
-
-4. **`narrow` defaults: magit + claude visible, vterm stashed.** Encoded
-   in the `knayawp-layouts` default — no separate `knayawp-narrow-visible-
-   panels` defcustom needed (users override the layout entry directly).
-
-5. **Rotation key — open.** *Plan agent* proposed `C-c k <left>` / `<right>`.
-   *Prior-art agent* warned that `C-c <left>` / `<right>` are winner-mode
-   muscle memory and the prefix variant will misfire visually. Two safer
-   options: `C-c k f` / `C-c k b` (forward/back) or `C-c k >` / `C-c k <`
-   (mirroring tmux's `{` / `}` rotation glyphs without shift). **Decision
-   needs user sign-off before issue L4 lands.**
-
-6. **`C-c k n` / `C-c k p` keybinding migration is the only true break.**
-   Three-phase rollout (see issue plan): additive in v0.2.x, soft-
-   deprecation in v0.3.0-beta, default flip in v0.3.0. The function
-   symbols stay callable via `M-x` permanently with `make-obsolete`.
-
-### Prior-art guardrails
-
-From the research pass — what to steal and what to skip:
-
-- **Steal from tmux**: two-tier model (panes-visible vs windows-hidden);
-  `rotate-window` semantics over `swap-pane` (cycle, don't point-swap);
-  `swap-pane -d` convention — rotation never steals focus from the editor;
-  status indicator in the spirit of tmux's `*` / `-` / `Z` (one character
-  per panel in the side-window mode line, current marked).
-- **Steal from i3**: `layout toggle split` idiom — a single command
-  `knayawp-layout-cycle` walking `solo → narrow → wide → solo`.
-- **Steal from popper.el**: study its `popper-buried-popup-alist` shape
-  for `knayawp--panels-offscreen`. Don't depend on popper.
-- **Reject** top tab strips (bufferline.nvim / i3 tabbed titles) — they
-  add visual noise on the small screens this feature targets.
-- **Reject** Vim's "tab" terminology for in-side-pane rotation — "tab"
-  already means `tab-bar-mode` workspace in v0.2 vocabulary.
-- **Reject** ace-window-style overlays for offscreen panels (nothing to
-  overlay onto). Overlays are reserved for Idea 2.
-- **Reject** hard-coded `frame-width` thresholds for auto-detect.
-- **Lean on**: `display-buffer-in-side-window` + `window-parameters`,
-  `tab-line-mode` (only as opt-in within the side window), `winner-mode`
-  exemption (rotation must not pollute winner history). **Skip**
-  `shackle.el` and `purpose.el` — both wrap `display-buffer-alist` and
-  we want to call `display-buffer` directly per project conventions.
-
-### Sequenced rollout (issue plan)
-
-Filed against a new **v0.3.0** milestone. Rationale: v0.1.3 is for v0.1.2
-follow-on patches; v0.2.x is locked to tab-bar workspaces; layouts deserve
-their own release line. Phase 0 below is the only candidate for landing
-inside v0.2.x as additive prelude.
-
-**Phase 0 — strictly additive, zero breaking changes (v0.2.x):**
-
-- **L1.** Introduce `knayawp-layouts` + `knayawp-default-layout` defcustoms;
-  add internal `knayawp--apply-layout` resolver. `knayawp-layout-setup`
-  calls `(knayawp--apply-layout knayawp-default-layout)`. If
-  `knayawp-layouts` is unset, derive a `wide`-equivalent layout from
-  `knayawp-panels`. No user-visible change.
-- **L2.** Reimplement zoom internally as ephemeral `solo` layout. Keep
-  `knayawp-zoom-panel` and `knayawp--zoomed-panel` (the latter as a compat
-  shim updated by the layout system). ERT covers zoom/unzoom round-trip.
-- **L3.** Add `knayawp-select-layout` (interactive completing-read) bound
-  to `L`. `narrow` and `solo` layouts become selectable but `wide` stays
-  default.
-- **L4.** Add `knayawp-rotate-next` / `knayawp-rotate-prev` and bind them
-  to a chosen pair (see decision 5). No-op in `wide`. `n` / `p` keymap
-  unchanged. Add a one-character status indicator in the side-window mode
-  line (panel symbol + `*` for current, dim for stashed).
-
-**Phase 1 — opt-in changes (v0.3.0-beta):**
-
-- **L5.** Add `knayawp-layout-auto-select-flag` (default `nil`) and
-  `knayawp-narrow-threshold-columns`. Auto-selection only fires when the
-  flag is set.
-- **L6.** Mark `knayawp-next-panel` / `knayawp-prev-panel` obsolete via
-  `make-obsolete`. Keymap unchanged. README documents the upcoming flip.
-
-**Phase 2 — keymap flip (v0.3.0 release):**
-
-- **L7.** Flip `n` / `p` in `knayawp-command-map` to intra-pane window
-  cycling. Old function symbols remain callable. NEWS / README documents
-  the migration with a one-liner to restore the old keymap.
-
-**Phase 3 — polish (v0.3.x, follow-up issues, not pre-filed):**
-
-- Default-on auto-detect once user feedback confirms it isn't surprising.
-- Retire `knayawp--zoomed-panel` internal compat shim.
-
-### Risk register (top 3, full list in design notes)
-
-1. **Keymap rebind silently breaks muscle memory.** Mitigation: full minor
-   cycle of `make-obsolete` warnings + README NEWS entry. Reversible in a
-   patch.
-2. **`knayawp-panels` semantic shift hides panels.** Mitigation: derive
-   `wide` layout from `knayawp-panels` when `knayawp-layouts` is unset;
-   default layout is `wide`. Reversible.
-3. **Zoom/layout state-machine collision.** Mitigation: single state owner
-   from L2 onward — `knayawp--zoomed-panel` becomes a derived value, not a
-   primary state. Structural risk; landing L1+L2 together is the de-risk.
-
-### Promote-to-issue checklist
-
-- [ ] User decides rotation keys (decision 5): `f`/`b`, `>`/`<`, or arrows.
-- [ ] User confirms v0.3.0 milestone vs squeezing Phase 0 into v0.2.x.
-- [ ] File issues L1–L7 against the chosen milestones, in dependency
-      order, with the issue bodies derived from the phased plan above.
-- [ ] When ready to start work, add corresponding `- [ ]` lines to PLAN.md
-      under each milestone (per the PLAN.md ↔ milestone invariant).
+Promoted to v0.3.0 milestone; see issues #69–#75 for the phased rollout
+(foundation defcustoms → zoom refactor → select command → rotation → auto-detect
+→ soft-deprecation → keymap flip).
 
 ---
 
@@ -301,3 +129,118 @@ is built into Emacs 30+).
 - [ ] Decide A: overlays as opt-in command, default off?
 - [ ] Decide C: punt to `which-key` and document, or build native?
 - [ ] Audit existing command docstrings for which-key-friendliness.
+
+---
+
+## Idea 3 — Frictionless copy/paste from protected terminal panels
+
+**Status:** sketch
+
+### Motivation
+
+The whole point of the layout is having magit, vterm, and Claude side by
+side. In practice the author hits a sharp pain point several times per
+session: copying shell input/output out of the terminal panel into Claude
+(or to an external app) requires the full vterm copy-mode choreography —
+`C-c C-t` to enter copy-mode, navigate to the start of the region, set
+mark, navigate to the end, `M-w`, then `C-c C-t` again to exit. That's
+six keystrokes for a copy that takes one in any "normal" buffer, and the
+modal nature means it's easy to forget you're still in copy-mode and lose
+the next character of "real" input.
+
+The protected (side-window) panels are an even higher-friction surface
+than a standalone vterm, because the user's eye flicks between them
+constantly to pipe context from one tool to the next.
+
+### What we want
+
+A seamless, single-keystroke way to flip a protected panel between
+"interactive" (current vterm default, accepts keystrokes) and
+"readable" (point moves freely, selection works, no copy-mode dance).
+Ideally one keystroke under `knayawp-command-map` toggles the *current*
+panel; a second keystroke (or a different binding) toggles *all*
+terminal panels at once.
+
+### Approaches to investigate
+
+#### A. Wrap vterm-copy-mode in a friendlier toggle
+
+vterm-copy-mode already exists; the issue is that it's awkward to invoke
+and that you have to remember to leave it. A knayawp-level toggle could:
+
+- Bind a single key under the prefix (say `c`) that calls
+  `vterm-copy-mode` on the current side window.
+- Optionally exit copy-mode automatically on certain events (window
+  selection change? mouse click outside the panel?).
+- Mode-line indicator so the user knows which mode the panel is in.
+
+Cheap, deliverable as a small command. Doesn't address the underlying
+modal friction, but smooths the keystroke cost.
+
+#### B. Default panels to "readable" and only enter "live" on demand
+
+Inverse of the current default. Side-window terminal panels would render
+as normal selectable text by default; pressing a key (or focusing the
+panel and typing) would flip them to live-input mode. Mouse selection
+just works.
+
+Bigger change in mental model, but matches how IDE consoles tend to
+behave. Requires investigating whether vterm can be coaxed into this
+mode reliably — vterm's read-only state is enforced by `vterm-mode`
+keymap precedence, not buffer read-only, so it might be cleaner than it
+looks. Worth a deep dive before committing.
+
+#### C. Backend lever — eat may sidestep the problem entirely
+
+eat (`knayawp-terminal-backend = 'eat`) uses pure Emacs redisplay and
+its semi-char-mode allows ordinary point movement and selection between
+keystrokes. If eat handles copy out of the box without modal dance, the
+right answer might just be: document the trade-off, default to vterm
+for performance, recommend eat for users who care more about copy
+ergonomics than refresh smoothness. This also strengthens the case for
+the existing backend abstraction (P3).
+
+Concretely: side-by-side test session — same task in both backends,
+record the keystroke cost of copying a multi-line shell output into the
+Claude panel.
+
+#### D. Panel-state generalisation
+
+The most ambitious framing: panels are state machines with at least
+two states (`live` / `readable`), with a single defcustom controlling
+the default state per panel type. The global toggle (idea A) becomes
+the user-facing handle on this state. magit panels are always
+readable; vterm/claude panels start `live` but can be flipped.
+
+This is the "right" abstraction if we believe other backends or panel
+types will land later. It's also overkill for a single pain point.
+Park it unless a second instance of the same problem surfaces.
+
+### Open questions
+
+1. **Does vterm really require modal copy or is there a config knob?**
+   Search vterm docs for selection/mouse handling. If a simple
+   `vterm-disable-...-something` exists, the whole idea collapses to
+   one defcustom and a docstring.
+2. **What does eat actually do?** Need a hands-on comparison. If eat is
+   already frictionless, idea C is the cheapest win.
+3. **Mouse vs keyboard.** The pain point is keyboard-driven (the user
+   wants to copy without leaving the keyboard). But mouse selection in
+   side windows is also broken in vterm copy-mode UX. Worth confirming
+   both surfaces in one fix.
+4. **Interaction with `knayawp-isolate-other-window-flag`.** If the
+   panel is "readable", does `C-x o` still skip it? Probably yes —
+   isolation is about layout immunity (P1), not buffer interaction.
+   But worth re-reading P1 against both flags together.
+
+### Promote-to-issue checklist
+
+- [ ] Empirical pass: confirm whether vterm has a low-friction
+      configuration for selection (resolve open question 1).
+- [ ] Empirical pass: compare eat vs vterm copy ergonomics
+      side-by-side (resolve open question 2).
+- [ ] Decide between A (toggle), B (inverted default), C (recommend
+      eat), or some hybrid.
+- [ ] If A or B wins: file an issue against v0.1.5 (or later) once the
+      shape is settled. If C wins: file a docs-only issue and an
+      `kb/spec.md` clarification on backend trade-offs.
