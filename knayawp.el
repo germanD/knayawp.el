@@ -81,6 +81,22 @@ behavior."
   :type 'boolean
   :group 'knayawp)
 
+(defcustom knayawp-isolate-other-window-flag t
+  "Non-nil means `other-window' skips knayawp side windows.
+When non-nil (the default), each knayawp side window carries the
+`no-other-window' parameter, so `C-x o' cycles only between the
+editor pane and other non-side windows.  When nil, the parameter
+is omitted and `C-x o' walks into the side windows like any other
+window — useful for users who prefer plain cycling over isolation.
+
+Changing this value at runtime only affects newly created
+layouts: existing side windows keep the parameter they were built
+with.  Toggle the flag and run \\[knayawp-layout-setup] again
+\(or tear down and re-create the layout) for the change to take
+effect everywhere."
+  :type 'boolean
+  :group 'knayawp)
+
 (defcustom knayawp-keymap-style 'default
   "Keybinding style for the variable `knayawp-command-map'.
 The same set of commands is bound under every style; only the
@@ -157,6 +173,13 @@ Stored so it can be cleanly removed on teardown.")
 Each entry routes buffers named `*knayawp-TYPE-*' to the side window
 slot configured for TYPE in `knayawp-panels'.  Stored so the entries
 can be removed precisely on `knayawp-mode' deactivation.")
+
+(defvar knayawp--frame-widths nil
+  "Alist of (FRAME . FRAME-WIDTH) recording last known frame widths.
+Used by `knayawp--restore-right-width-on-resize' to distinguish
+external frame-size changes (where we re-apply `knayawp-right-width')
+from intra-frame window resizes (where we leave the user's choice
+alone).")
 
 ;;;; Project detection
 
@@ -288,6 +311,17 @@ PROJECT-ROOT is the project directory, PROJECT-NAME its short name."
               project-root project-name))
     (_ (user-error "Unknown panel type: %s" type))))
 
+;;;; Side window parameter helper
+
+(defun knayawp--side-window-parameters ()
+  "Return the `window-parameters' alist for knayawp side windows.
+Always includes `no-delete-other-windows'; `no-other-window' is
+included only when `knayawp-isolate-other-window-flag' is
+non-nil."
+  `((no-delete-other-windows . t)
+    ,@(when knayawp-isolate-other-window-flag
+        '((no-other-window . t)))))
+
 ;;;; Magit integration
 
 (defun knayawp--magit-display-buffer (buffer)
@@ -311,9 +345,7 @@ previously active `magit-display-buffer-function'."
          (slot . ,(knayawp--panel-slot magit-spec))
          (window-width . ,knayawp-right-width)
          (preserve-size . (t . nil))
-         (window-parameters
-          . ((no-delete-other-windows . t)
-             (no-other-window . t))))))))
+         (window-parameters . ,(knayawp--side-window-parameters)))))))
 
 (defun knayawp--magit-process-buffer-p (buffer-or-name _action)
   "Return non-nil if BUFFER-OR-NAME is a `magit-process-mode' buffer.
@@ -366,8 +398,7 @@ not pop a window in the editor pane."
                 (window-width . ,knayawp-right-width)
                 (preserve-size . (t . nil))
                 (window-parameters
-                 . ((no-delete-other-windows . t)
-                    (no-other-window . t)))))
+                 . ,(knayawp--side-window-parameters))))
         (push knayawp--process-display-entry display-buffer-alist)))))
 
 (defun knayawp--teardown-magit-integration ()
@@ -417,8 +448,7 @@ left and is selected when done."
              (window-width . ,knayawp-right-width)
              (preserve-size . (t . nil))
              (window-parameters
-              . ((no-delete-other-windows . t)
-                 (no-other-window . t))))))))
+              . ,(knayawp--side-window-parameters)))))))
     ;; Equalise side window heights
     (knayawp--balance-side-windows)
     ;; Record the layout
@@ -429,6 +459,12 @@ left and is selected when done."
     (knayawp--setup-magit-integration)
     ;; Select the main editor window
     (knayawp--select-editor-window)
+    ;; Install the frame-resize watcher and seed the recorded width for
+    ;; the current frame so the first hook firing is a no-op.
+    (add-hook 'window-size-change-functions
+              #'knayawp--restore-right-width-on-resize)
+    (setf (alist-get (selected-frame) knayawp--frame-widths)
+          (frame-width (selected-frame)))
     ;; Run user hook last, so functions see the final state
     (run-hooks 'knayawp-layout-hook)))
 
@@ -439,16 +475,25 @@ Delete all side windows but do not kill their buffers."
   (knayawp--teardown-magit-integration)
   (let ((side-windows (knayawp--side-windows)))
     (dolist (win side-windows)
-      (delete-window win))))
+      (delete-window win)))
+  ;; Drop this frame's recorded width.  If no other frames still have
+  ;; an active layout, remove the global hook altogether.
+  (setf (alist-get (selected-frame) knayawp--frame-widths nil 'remove)
+        nil)
+  (unless knayawp--frame-widths
+    (remove-hook 'window-size-change-functions
+                 #'knayawp--restore-right-width-on-resize)))
 
 ;;;; Window utilities
 
+(defun knayawp--side-windows-in-frame (frame)
+  "Return side windows in FRAME."
+  (seq-filter (lambda (w) (window-parameter w 'window-side))
+              (window-list frame)))
+
 (defun knayawp--side-windows ()
   "Return a list of all side windows in the current frame."
-  (seq-filter
-   (lambda (win)
-     (window-parameter win 'window-side))
-   (window-list)))
+  (knayawp--side-windows-in-frame (selected-frame)))
 
 (defun knayawp--balance-side-windows ()
   "Equalise the heights of all side windows in the current frame.
@@ -458,6 +503,33 @@ calling `balance-windows' on that parent gives equal heights."
               ((>= (length wins) 2))
               (parent (window-parent (car wins))))
     (balance-windows parent)))
+
+(defun knayawp--apply-right-width (frame)
+  "Resize knayawp side windows in FRAME to `knayawp-right-width'.
+Temporarily clears the `preserve-size' lock so the resize is not
+rejected, then re-locks at the new width."
+  (when-let* ((side-win (car (knayawp--side-windows-in-frame frame)))
+              (target (round (* (frame-width frame)
+                                knayawp-right-width)))
+              (current (window-total-width side-win))
+              (delta (- target current))
+              ((not (zerop delta))))
+    (window-preserve-size side-win t nil)
+    (ignore-errors (window-resize side-win delta t))
+    (window-preserve-size side-win t t)))
+
+(defun knayawp--restore-right-width-on-resize (frame)
+  "Re-apply `knayawp-right-width' to side windows after frame resize.
+Hook function for `window-size-change-functions'.  Acts only when
+FRAME's width has changed since the last invocation AND FRAME has
+knayawp side windows.  Intra-frame window resizes are left
+untouched."
+  (let ((current-width (frame-width frame))
+        (last-width (alist-get frame knayawp--frame-widths)))
+    (unless (equal current-width last-width)
+      (setf (alist-get frame knayawp--frame-widths) current-width)
+      (when last-width
+        (knayawp--apply-right-width frame)))))
 
 (defun knayawp--select-editor-window ()
   "Select the main editor window (non-side-window)."
@@ -561,8 +633,7 @@ a side window."
                  (window-width . ,knayawp-right-width)
                  (preserve-size . (t . nil))
                  (window-parameters
-                  . ((no-delete-other-windows . t)
-                     (no-other-window . t))))))))
+                  . ,(knayawp--side-window-parameters)))))))
         (knayawp--balance-side-windows)
         ;; Select the panel that was zoomed
         (let* ((spec (seq-find
@@ -715,9 +786,7 @@ to a right side window at the panel's slot."
       (slot . ,slot)
       (window-width . ,knayawp-right-width)
       (preserve-size . (t . nil))
-      (window-parameters
-       . ((no-delete-other-windows . t)
-          (no-other-window . t))))))
+      (window-parameters . ,(knayawp--side-window-parameters)))))
 
 (defun knayawp--install-panel-display-routing ()
   "Install `display-buffer-alist' entries for knayawp panel buffers.
