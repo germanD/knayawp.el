@@ -54,6 +54,22 @@ Long-term Emacs users (not necessarily "power users") who:
 - Pressing `q` restores the previous magit buffer (built-in `quit-restore`)
 - COMMIT_EDITMSG opens in the editor pane (commits are editing tasks)
 
+**Commit flow:**
+
+When the user initiates a commit (e.g. `c c` in magit-status), the
+magit side window expands ("zooms") to fill the right column and the
+COMMIT_EDITMSG buffer is displayed within it. On commit finish or
+cancel, the 3-panel layout is restored automatically.
+
+This behavior is controlled by `knayawp-magit-commit-style` (default
+`'zoom`). Setting the style to `'editor` reverts to the v0.1.3
+behavior of routing COMMIT_EDITMSG to the editor pane while the diff
+goes to the magit slot. Setting it to `'off` disables all special
+commit handling.
+
+After a commit completes, focus returns to the editor pane (configurable
+via `knayawp-magit-commit-focus-after`).
+
 **Terminal backend:**
 - Pluggable: vterm (default) or eat, selected via customization variable
 - All terminal creation goes through a dispatch layer — no direct vterm/eat API calls outside it

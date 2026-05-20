@@ -48,6 +48,9 @@
 (declare-function magit-status-setup-buffer "magit-status")
 (defvar magit-display-buffer-function)
 (declare-function magit-display-buffer-traditional "magit-mode")
+(defvar git-commit-setup-hook)
+(defvar with-editor-post-finish-hook)
+(defvar with-editor-post-cancel-hook)
 
 ;;;; Customization group
 
@@ -77,8 +80,68 @@
 (defcustom knayawp-magit-commit-in-editor-flag t
   "Non-nil means show COMMIT_EDITMSG in the editor pane.
 When nil, commit message buffers follow default `display-buffer'
-behavior."
+behavior.
+
+Obsolete: prefer `knayawp-magit-commit-style'.  When the user has
+not explicitly customized that new option (it is still at the
+default `zoom'), this flag is honored via a one-shot shim:
+non-nil maps to `editor' and nil maps to `off'."
   :type 'boolean
+  :group 'knayawp)
+
+(make-obsolete-variable
+ 'knayawp-magit-commit-in-editor-flag
+ "Use `knayawp-magit-commit-style' instead.
+Mapping: t -> `editor', nil -> `off'."
+ "0.1.4")
+
+(defcustom knayawp-magit-commit-style 'zoom
+  "Strategy for displaying magit commit-message buffers.
+
+`zoom' (the default) collapses the right column to just the magit
+side window and displays COMMIT_EDITMSG inside it; on commit
+finish or cancel the 3-panel layout is restored automatically.
+
+`editor' is the v0.1.3 behavior: COMMIT_EDITMSG is routed to the
+editor pane while the diff lands in the magit slot.
+
+`off' disables all special commit handling — no
+`display-buffer-alist' entry for COMMIT_EDITMSG, no commit hooks.
+Useful for users with their own magit display function.
+
+Changing this value at runtime affects future commit sessions
+only; an in-progress commit completes under the style it was
+started with.  Run \\[knayawp-layout-setup] (or tear down and
+re-create the layout) to install or remove the relevant hooks
+after a change.
+
+The `zoom' value requires `knayawp-layout-setup' to have been
+called: zoom is a no-op without an active layout.  The other two
+values are also no-ops without the layout."
+  :type '(choice (const :tag "Zoom magit slot during commit" zoom)
+                 (const :tag "Pop COMMIT_EDITMSG to editor pane" editor)
+                 (const :tag "Default magit display (no special handling)"
+                        off))
+  :group 'knayawp)
+
+(defcustom knayawp-magit-commit-focus-after 'editor
+  "Window to select after a commit finishes or is canceled.
+
+`editor' (the default) selects the editor pane, consistent with
+`knayawp-select-editor' and with the idea that magit and the
+terminals are visited briefly from the editor.
+
+`magit' selects the magit side window if one exists.
+
+`previous' restores focus to the window that was selected before
+the commit was initiated (captured in
+`knayawp--commit-pre-state').
+
+Only consulted by the `zoom' commit style; the `editor' and `off'
+styles do not place focus on commit end."
+  :type '(choice (const :tag "Editor pane" editor)
+                 (const :tag "Magit side window" magit)
+                 (const :tag "Window selected before commit" previous))
   :group 'knayawp)
 
 (defcustom knayawp-isolate-other-window-flag t
@@ -157,6 +220,20 @@ Each BUFFER-ALIST maps panel types to their buffers.")
 (defvar knayawp--zoomed-panel nil
   "Panel type symbol currently zoomed, or nil if not zoomed.")
 
+(defvar knayawp--commit-pre-state nil
+  "Plist describing the layout state captured when a commit started.
+Nil when no commit-zoom session is active.  Otherwise a plist with
+keys:
+
+  :active            Non-nil while the commit-zoom flow is in effect.
+  :was-zoomed        Panel type symbol if a manual zoom was already
+                     active, else nil.  Used to avoid double-zoom.
+  :prior-magit-buf   Buffer that was displayed in the magit slot
+                     before the commit started (defensive marker).
+  :pre-commit-window Window selected when the commit was initiated;
+                     consulted when `knayawp-magit-commit-focus-after'
+                     is `previous'.")
+
 (defvar knayawp--magit-saved-display-fn nil
   "Saved value of `magit-display-buffer-function'.")
 
@@ -180,6 +257,17 @@ Used by `knayawp--restore-right-width-on-resize' to distinguish
 external frame-size changes (where we re-apply `knayawp-right-width')
 from intra-frame window resizes (where we leave the user's choice
 alone).")
+
+(defvar knayawp--commit-hooks-installed nil
+  "Non-nil when the commit-flow hooks are registered.
+Set by `knayawp--install-commit-hooks' and cleared by
+`knayawp--remove-commit-hooks' so install/remove are idempotent.")
+
+(defvar knayawp--commit-style-shim-warned nil
+  "Non-nil after the obsolescence-shim message has been emitted.
+The shim that bridges `knayawp-magit-commit-in-editor-flag' and
+`knayawp-magit-commit-style' messages the user once per Emacs
+session.  This flag is also used by ERT to reset between tests.")
 
 ;;;; Project detection
 
@@ -360,15 +448,203 @@ so the routing is a no-op when no layout is active."
            (with-current-buffer buf
              (derived-mode-p 'magit-process-mode))))))
 
+(defun knayawp--resolve-commit-style ()
+  "Return the effective `knayawp-magit-commit-style' value.
+Honors the obsolescence shim from
+`knayawp-magit-commit-in-editor-flag': when the user explicitly
+customized the old flag and left the new option at its default
+`zoom', map the old flag to `editor' / `off' and message once.
+When both have been customized, the new variable wins (also
+messaged once)."
+  (let* ((style-customized
+          (not (eq (default-value 'knayawp-magit-commit-style) 'zoom)))
+         (old-customized
+          (not (equal (default-value 'knayawp-magit-commit-in-editor-flag)
+                      (eval (car (get 'knayawp-magit-commit-in-editor-flag
+                                      'standard-value))
+                            t)))))
+    (cond
+     ;; Old flag set, new option still default: honor the old flag.
+     ((and old-customized (not style-customized))
+      (unless knayawp--commit-style-shim-warned
+        (setq knayawp--commit-style-shim-warned t)
+        (message
+         (concat "knayawp: `knayawp-magit-commit-in-editor-flag' is "
+                 "obsolete; migrate to `knayawp-magit-commit-style'.")))
+      (if knayawp-magit-commit-in-editor-flag 'editor 'off))
+     ;; Both customized: new wins, note the override.
+     ((and old-customized style-customized)
+      (unless knayawp--commit-style-shim-warned
+        (setq knayawp--commit-style-shim-warned t)
+        (message
+         (concat "knayawp: `knayawp-magit-commit-in-editor-flag' is "
+                 "ignored because `knayawp-magit-commit-style' is set.")))
+      knayawp-magit-commit-style)
+     ;; Default path.
+     (t knayawp-magit-commit-style))))
+
+(defun knayawp--commit-flow-active-p ()
+  "Return non-nil if a commit-zoom session is currently active."
+  (and knayawp--commit-pre-state
+       (plist-get knayawp--commit-pre-state :active)))
+
+(defun knayawp--save-commit-pre-state (magit-slot)
+  "Capture pre-commit layout state into `knayawp--commit-pre-state'.
+MAGIT-SLOT is the integer slot of the magit side window."
+  (let* ((magit-win (knayawp--side-window-for-slot magit-slot))
+         (prior-buf (and magit-win (window-buffer magit-win))))
+    (setq knayawp--commit-pre-state
+          (list :active            t
+                :was-zoomed        knayawp--zoomed-panel
+                :prior-magit-buf   prior-buf
+                :pre-commit-window (selected-window)))))
+
+(defun knayawp--focus-target-window ()
+  "Return the window to select after a commit finishes or cancels.
+Driven by `knayawp-magit-commit-focus-after'.  Falls back to the
+editor pane when the requested target is not available."
+  (pcase knayawp-magit-commit-focus-after
+    ('editor
+     (seq-find (lambda (win)
+                 (not (window-parameter win 'window-side)))
+               (window-list)))
+    ('magit
+     (let ((magit-spec (assq 'magit knayawp-panels)))
+       (or (and magit-spec
+                (knayawp--side-window-for-slot
+                 (knayawp--panel-slot magit-spec)))
+           (seq-find (lambda (win)
+                       (not (window-parameter win 'window-side)))
+                     (window-list)))))
+    ('previous
+     (let ((win (and knayawp--commit-pre-state
+                     (plist-get knayawp--commit-pre-state
+                                :pre-commit-window))))
+       (if (and win (window-live-p win))
+           win
+         (seq-find (lambda (w)
+                     (not (window-parameter w 'window-side)))
+                   (window-list)))))
+    (_
+     (seq-find (lambda (win)
+                 (not (window-parameter win 'window-side)))
+               (window-list)))))
+
+(defun knayawp--restore-commit-pre-state ()
+  "Reset `knayawp--commit-pre-state' and place focus.
+Does not perform a window-configuration restore: `with-editor'
+already restored the pre-commit layout via
+`with-editor-previous-winconf' before this runs.  Honors
+`knayawp-magit-commit-focus-after' for the focus target."
+  (let ((target (knayawp--focus-target-window)))
+    (setq knayawp--commit-pre-state nil)
+    (when (and target (window-live-p target))
+      (select-window target))))
+
+(defun knayawp--apply-zoom-solo-magit ()
+  "Zoom the layout down to just the magit side window.
+Thin wrapper around the existing zoom machinery.  Kept as a
+named entry point so the v0.3.0 layout-system refactor (issue
+#70) is a one-function change."
+  (let* ((magit-spec (assq 'magit knayawp-panels))
+         (slot (and magit-spec (knayawp--panel-slot magit-spec)))
+         (magit-win (and slot (knayawp--side-window-for-slot slot))))
+    (when magit-win
+      (dolist (win (knayawp--side-windows))
+        (unless (eq (window-parameter win 'window-slot) slot)
+          (delete-window win)))
+      (setq knayawp--zoomed-panel (knayawp--panel-type magit-spec)))))
+
+(defun knayawp--commit-flow-start ()
+  "Enter the commit-zoom mode.
+Capture state into `knayawp--commit-pre-state', zoom the magit
+slot via `knayawp--apply-zoom-solo-magit', and select the
+COMMIT_EDITMSG buffer when the current buffer is a git-commit
+buffer."
+  (let* ((magit-spec (assq 'magit knayawp-panels))
+         (slot (and magit-spec (knayawp--panel-slot magit-spec))))
+    (when slot
+      (knayawp--save-commit-pre-state slot)
+      ;; Skip the zoom step when a manual zoom is already active so
+      ;; we don't clobber the user's preferred slot.
+      (unless (plist-get knayawp--commit-pre-state :was-zoomed)
+        (knayawp--apply-zoom-solo-magit))
+      ;; Ensure the COMMIT_EDITMSG buffer is selected in the magit
+      ;; slot.  `git-commit-setup-hook' runs with current-buffer
+      ;; already set to COMMIT_EDITMSG, so reuse it.
+      (let ((commit-buf (current-buffer))
+            (magit-win (knayawp--side-window-for-slot slot)))
+        (when (and magit-win (window-live-p magit-win))
+          (set-window-buffer magit-win commit-buf)
+          (select-window magit-win))))))
+
+(defun knayawp--commit-flow-end ()
+  "Exit the commit-zoom mode.
+Idempotent: if no commit-flow session is active, do nothing.
+Otherwise clear the state plist and place focus per
+`knayawp-magit-commit-focus-after'."
+  (when (knayawp--commit-flow-active-p)
+    (knayawp--restore-commit-pre-state)))
+
+(defun knayawp--git-commit-setup-handler ()
+  "Hook function for `git-commit-setup-hook'.
+Activate the commit-zoom flow when (a) a knayawp layout is active
+in the current frame, (b) `knayawp-magit-commit-style' resolves to
+`zoom', and (c) no commit-flow session is already in progress."
+  (let* ((magit-spec (assq 'magit knayawp-panels))
+         (magit-win (and magit-spec
+                         (knayawp--side-window-for-slot
+                          (knayawp--panel-slot magit-spec)))))
+    (when (and magit-win
+               (eq (knayawp--resolve-commit-style) 'zoom)
+               (not (knayawp--commit-flow-active-p)))
+      (knayawp--commit-flow-start))))
+
+(defun knayawp--with-editor-finish-handler ()
+  "Hook function for `with-editor-post-finish-hook'.
+Run `knayawp--commit-flow-end' when our flow is active."
+  (knayawp--commit-flow-end))
+
+(defun knayawp--with-editor-cancel-handler ()
+  "Hook function for `with-editor-post-cancel-hook'.
+Run `knayawp--commit-flow-end' when our flow is active."
+  (knayawp--commit-flow-end))
+
+(defun knayawp--install-commit-hooks ()
+  "Register knayawp's commit-flow handlers on the relevant hooks.
+Idempotent.  Called from `knayawp--setup-magit-integration' when
+the resolved commit style is `zoom'."
+  (unless knayawp--commit-hooks-installed
+    (add-hook 'git-commit-setup-hook
+              #'knayawp--git-commit-setup-handler)
+    (add-hook 'with-editor-post-finish-hook
+              #'knayawp--with-editor-finish-handler)
+    (add-hook 'with-editor-post-cancel-hook
+              #'knayawp--with-editor-cancel-handler)
+    (setq knayawp--commit-hooks-installed t)))
+
+(defun knayawp--remove-commit-hooks ()
+  "Unregister knayawp's commit-flow handlers.
+Inverse of `knayawp--install-commit-hooks'.  Idempotent."
+  (when knayawp--commit-hooks-installed
+    (remove-hook 'git-commit-setup-hook
+                 #'knayawp--git-commit-setup-handler)
+    (remove-hook 'with-editor-post-finish-hook
+                 #'knayawp--with-editor-finish-handler)
+    (remove-hook 'with-editor-post-cancel-hook
+                 #'knayawp--with-editor-cancel-handler)
+    (setq knayawp--commit-hooks-installed nil)))
+
 (defun knayawp--setup-magit-integration ()
   "Install magit buffer display integration.
 Save the current `magit-display-buffer-function' and replace it
-with `knayawp--magit-display-buffer'.  If
-`knayawp-magit-commit-in-editor-flag' is non-nil, add a
-`display-buffer-alist' entry to route COMMIT_EDITMSG to the
-editor pane.  Also add an entry that pins `magit-process-mode'
-buffers to the magit side window so long-running git commands do
-not pop a window in the editor pane."
+with `knayawp--magit-display-buffer'.  Depending on the resolved
+value of `knayawp-magit-commit-style', either install the
+COMMIT_EDITMSG `display-buffer-alist' entry (`editor'), install
+the commit-flow hooks (`zoom'), or do neither (`off').  Always
+add the entry that pins `magit-process-mode' buffers to the magit
+side window so long-running git commands do not pop a window in
+the editor pane."
   (when (require 'magit nil t)
     ;; Guard against double-setup: only save the original function
     ;; if we haven't already installed ours.
@@ -378,15 +654,20 @@ not pop a window in the editor pane."
             magit-display-buffer-function)
       (setq magit-display-buffer-function
             #'knayawp--magit-display-buffer))
-    (when (and knayawp-magit-commit-in-editor-flag
-               (not knayawp--commit-display-entry))
-      (setq knayawp--commit-display-entry
-            '("COMMIT_EDITMSG"
-              (display-buffer-reuse-window
-               display-buffer-use-some-window)
-              (reusable-frames . visible)
-              (inhibit-same-window . t)))
-      (push knayawp--commit-display-entry display-buffer-alist))
+    (let ((style (knayawp--resolve-commit-style)))
+      (pcase style
+        ('editor
+         (unless knayawp--commit-display-entry
+           (setq knayawp--commit-display-entry
+                 '("COMMIT_EDITMSG"
+                   (display-buffer-reuse-window
+                    display-buffer-use-some-window)
+                   (reusable-frames . visible)
+                   (inhibit-same-window . t)))
+           (push knayawp--commit-display-entry display-buffer-alist)))
+        ('zoom
+         (knayawp--install-commit-hooks))
+        ('off nil)))
     (unless knayawp--process-display-entry
       (let ((slot (knayawp--panel-slot
                    (assq 'magit knayawp-panels))))
@@ -403,9 +684,9 @@ not pop a window in the editor pane."
 
 (defun knayawp--teardown-magit-integration ()
   "Remove magit buffer display integration.
-Restore the saved `magit-display-buffer-function' and remove the
+Restore the saved `magit-display-buffer-function', remove the
 COMMIT_EDITMSG and `magit-process-mode' `display-buffer-alist'
-entries."
+entries, and unregister the commit-flow hooks."
   (when knayawp--magit-saved-display-fn
     (setq magit-display-buffer-function
           knayawp--magit-saved-display-fn)
@@ -417,7 +698,8 @@ entries."
   (when knayawp--process-display-entry
     (setq display-buffer-alist
           (delq knayawp--process-display-entry display-buffer-alist))
-    (setq knayawp--process-display-entry nil)))
+    (setq knayawp--process-display-entry nil))
+  (knayawp--remove-commit-hooks))
 
 ;;;; Layout engine
 
@@ -470,8 +752,13 @@ left and is selected when done."
 
 (defun knayawp-layout-teardown ()
   "Remove the knayawp control pane from the current frame.
-Delete all side windows but do not kill their buffers."
+Delete all side windows but do not kill their buffers.  If a
+commit-zoom session was active, discard its state and warn."
   (interactive)
+  (when (knayawp--commit-flow-active-p)
+    (setq knayawp--commit-pre-state nil)
+    (message
+     "knayawp: layout torn down during active commit; state cleared"))
   (knayawp--teardown-magit-integration)
   (let ((side-windows (knayawp--side-windows)))
     (dolist (win side-windows)
