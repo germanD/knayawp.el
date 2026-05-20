@@ -795,4 +795,229 @@ helper."
       (knayawp--restore-right-width-on-resize (selected-frame))
       (should (= 1 calls)))))
 
+;;;; Commit flow (#48, #53)
+
+(ert-deftest knayawp-test-commit-style-default ()
+  "`knayawp-magit-commit-style' defaults to `zoom'."
+  (should (eq 'zoom (default-value 'knayawp-magit-commit-style))))
+
+(ert-deftest knayawp-test-commit-style-obsolete-shim-editor ()
+  "Old flag = t maps to `editor' when new option is default.
+Setup installs a COMMIT_EDITMSG `display-buffer-alist' entry and
+no commit hooks."
+  (when (require 'magit nil t)
+    (let ((original magit-display-buffer-function)
+          (knayawp--magit-saved-display-fn nil)
+          (knayawp--commit-display-entry nil)
+          (knayawp--process-display-entry nil)
+          (knayawp--commit-hooks-installed nil)
+          (knayawp--commit-style-shim-warned t)
+          (knayawp-magit-commit-style 'zoom)
+          (knayawp-magit-commit-in-editor-flag t)
+          (display-buffer-alist nil))
+      (unwind-protect
+          (progn
+            ;; Simulate "user explicitly set the old flag" by changing
+            ;; the default-value via cl-letf'd default-value lookup;
+            ;; here we rely on the let-binding above already differing
+            ;; from the standard value (t == default), so we force the
+            ;; old-customized branch by stubbing default-value lookup.
+            (cl-letf (((symbol-function 'default-value)
+                       (lambda (sym)
+                         (pcase sym
+                           ('knayawp-magit-commit-style 'zoom)
+                           ('knayawp-magit-commit-in-editor-flag nil)
+                           (_ (symbol-value sym))))))
+              (knayawp--setup-magit-integration))
+            (should (seq-find
+                     (lambda (e)
+                       (and (stringp (car e))
+                            (string-match-p "COMMIT_EDITMSG"
+                                            (car e))))
+                     display-buffer-alist))
+            (should-not (memq #'knayawp--git-commit-setup-handler
+                              git-commit-setup-hook))
+            (knayawp--teardown-magit-integration))
+        (setq magit-display-buffer-function original)))))
+
+(ert-deftest knayawp-test-commit-style-obsolete-shim-off ()
+  "Old flag = nil maps to `off' when new option is default.
+Setup installs no COMMIT_EDITMSG entry and no commit hooks."
+  (when (require 'magit nil t)
+    (let ((original magit-display-buffer-function)
+          (knayawp--magit-saved-display-fn nil)
+          (knayawp--commit-display-entry nil)
+          (knayawp--process-display-entry nil)
+          (knayawp--commit-hooks-installed nil)
+          (knayawp--commit-style-shim-warned t)
+          (knayawp-magit-commit-style 'zoom)
+          (knayawp-magit-commit-in-editor-flag nil)
+          (display-buffer-alist nil))
+      (unwind-protect
+          (progn
+            (cl-letf (((symbol-function 'default-value)
+                       (lambda (sym)
+                         (pcase sym
+                           ('knayawp-magit-commit-style 'zoom)
+                           ('knayawp-magit-commit-in-editor-flag t)
+                           (_ (symbol-value sym))))))
+              (knayawp--setup-magit-integration))
+            (should-not (seq-find
+                         (lambda (e)
+                           (and (stringp (car e))
+                                (string-match-p "COMMIT_EDITMSG"
+                                                (car e))))
+                         display-buffer-alist))
+            (should-not (memq #'knayawp--git-commit-setup-handler
+                              git-commit-setup-hook))
+            (knayawp--teardown-magit-integration))
+        (setq magit-display-buffer-function original)))))
+
+(ert-deftest knayawp-test-commit-hooks-installed-when-zoom ()
+  "With style = `zoom', setup installs all three commit hooks."
+  (when (require 'magit nil t)
+    (let ((original magit-display-buffer-function)
+          (knayawp--magit-saved-display-fn nil)
+          (knayawp--commit-display-entry nil)
+          (knayawp--process-display-entry nil)
+          (knayawp--commit-hooks-installed nil)
+          (knayawp--commit-style-shim-warned t)
+          (knayawp-magit-commit-style 'zoom)
+          (knayawp-magit-commit-in-editor-flag t)
+          (git-commit-setup-hook nil)
+          (with-editor-post-finish-hook nil)
+          (with-editor-post-cancel-hook nil)
+          (display-buffer-alist nil))
+      (unwind-protect
+          (progn
+            (knayawp--setup-magit-integration)
+            (should (memq #'knayawp--git-commit-setup-handler
+                          git-commit-setup-hook))
+            (should (memq #'knayawp--with-editor-finish-handler
+                          with-editor-post-finish-hook))
+            (should (memq #'knayawp--with-editor-cancel-handler
+                          with-editor-post-cancel-hook))
+            (should knayawp--commit-hooks-installed))
+        (knayawp--teardown-magit-integration)
+        (setq magit-display-buffer-function original)))))
+
+(ert-deftest knayawp-test-commit-hooks-removed-on-teardown ()
+  "Teardown unregisters all three commit-flow handlers."
+  (when (require 'magit nil t)
+    (let ((original magit-display-buffer-function)
+          (knayawp--magit-saved-display-fn nil)
+          (knayawp--commit-display-entry nil)
+          (knayawp--process-display-entry nil)
+          (knayawp--commit-hooks-installed nil)
+          (knayawp--commit-style-shim-warned t)
+          (knayawp-magit-commit-style 'zoom)
+          (knayawp-magit-commit-in-editor-flag t)
+          (git-commit-setup-hook nil)
+          (with-editor-post-finish-hook nil)
+          (with-editor-post-cancel-hook nil)
+          (display-buffer-alist nil))
+      (unwind-protect
+          (progn
+            (knayawp--setup-magit-integration)
+            (knayawp--teardown-magit-integration)
+            (should-not (memq #'knayawp--git-commit-setup-handler
+                              git-commit-setup-hook))
+            (should-not (memq #'knayawp--with-editor-finish-handler
+                              with-editor-post-finish-hook))
+            (should-not (memq #'knayawp--with-editor-cancel-handler
+                              with-editor-post-cancel-hook))
+            (should-not knayawp--commit-hooks-installed))
+        (setq magit-display-buffer-function original)))))
+
+(ert-deftest knayawp-test-commit-pre-state-shape ()
+  "`knayawp--save-commit-pre-state' populates all expected plist keys."
+  (let ((knayawp--commit-pre-state nil)
+        (knayawp--zoomed-panel nil))
+    (cl-letf (((symbol-function 'knayawp--side-window-for-slot)
+               (lambda (_slot) nil)))
+      (knayawp--save-commit-pre-state -1))
+    (should (plist-member knayawp--commit-pre-state :active))
+    (should (plist-member knayawp--commit-pre-state :was-zoomed))
+    (should (plist-member knayawp--commit-pre-state :prior-magit-buf))
+    (should (plist-member knayawp--commit-pre-state :pre-commit-window))
+    (should (eq t (plist-get knayawp--commit-pre-state :active)))
+    (should (windowp (plist-get knayawp--commit-pre-state
+                                :pre-commit-window)))
+    (setq knayawp--commit-pre-state nil)))
+
+(ert-deftest knayawp-test-commit-flow-handler-gating ()
+  "Setup-handler is a no-op when conditions are not met.
+Specifically: (a) no layout active, (b) style is not `zoom', and
+(c) a commit flow is already active."
+  (let ((knayawp--commit-pre-state nil)
+        (knayawp-magit-commit-style 'zoom)
+        (started 0))
+    (cl-letf (((symbol-function 'knayawp--commit-flow-start)
+               (lambda () (cl-incf started))))
+      ;; (a) No layout active: side-window-for-slot returns nil.
+      (cl-letf (((symbol-function 'knayawp--side-window-for-slot)
+                 (lambda (_slot) nil)))
+        (knayawp--git-commit-setup-handler)
+        (should (= 0 started)))
+      ;; (b) Style is not `zoom'.
+      (cl-letf (((symbol-function 'knayawp--side-window-for-slot)
+                 (lambda (_slot) 'fake-window))
+                ((symbol-function 'knayawp--resolve-commit-style)
+                 (lambda () 'editor)))
+        (knayawp--git-commit-setup-handler)
+        (should (= 0 started)))
+      ;; (c) Commit flow already active.
+      (cl-letf (((symbol-function 'knayawp--side-window-for-slot)
+                 (lambda (_slot) 'fake-window))
+                ((symbol-function 'knayawp--resolve-commit-style)
+                 (lambda () 'zoom)))
+        (setq knayawp--commit-pre-state (list :active t))
+        (knayawp--git-commit-setup-handler)
+        (should (= 0 started))
+        (setq knayawp--commit-pre-state nil))
+      ;; Sanity: when all three conditions hold, the handler fires.
+      (cl-letf (((symbol-function 'knayawp--side-window-for-slot)
+                 (lambda (_slot) 'fake-window))
+                ((symbol-function 'knayawp--resolve-commit-style)
+                 (lambda () 'zoom)))
+        (knayawp--git-commit-setup-handler)
+        (should (= 1 started))))))
+
+(ert-deftest knayawp-test-commit-flow-end-idempotent ()
+  "Calling `knayawp--commit-flow-end' twice does not error.
+The first call clears state and selects the focus target; the
+second call is a no-op because no flow is active."
+  (let ((knayawp--commit-pre-state
+         (list :active t :was-zoomed nil
+               :prior-magit-buf nil
+               :pre-commit-window (selected-window)))
+        (restored 0))
+    (cl-letf (((symbol-function 'knayawp--restore-commit-pre-state)
+               (lambda ()
+                 (cl-incf restored)
+                 (setq knayawp--commit-pre-state nil))))
+      (knayawp--commit-flow-end)
+      (should (= 1 restored))
+      ;; Second call: state is nil, so restore must not be called.
+      (knayawp--commit-flow-end)
+      (should (= 1 restored)))))
+
+(ert-deftest knayawp-test-commit-pre-state-cleared-by-teardown ()
+  "`knayawp-layout-teardown' clears `knayawp--commit-pre-state'."
+  (let ((knayawp--commit-pre-state
+         (list :active t :was-zoomed nil
+               :prior-magit-buf nil
+               :pre-commit-window (selected-window)))
+        (knayawp--frame-widths nil)
+        (knayawp--magit-saved-display-fn nil)
+        (knayawp--commit-display-entry nil)
+        (knayawp--process-display-entry nil)
+        (knayawp--commit-hooks-installed nil))
+    (cl-letf (((symbol-function 'knayawp--teardown-magit-integration)
+               #'ignore)
+              ((symbol-function 'knayawp--side-windows)
+               (lambda () nil)))
+      (knayawp-layout-teardown))
+    (should-not knayawp--commit-pre-state)))
+
 ;;; knayawp-test.el ends here

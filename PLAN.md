@@ -190,11 +190,11 @@ Resolved design decisions:
 - [ ] winner-mode integration — save/restore via winner before tearing down — #32
 - [ ] Make right-pane slot heights configurable — #56
 - [ ] Handle edge cases: frame too narrow (skip right panels), missing magit/vterm — #30
-- [ ] Magit transient buffers escape side window containment during commit — #48
+- [x] Magit transient buffers escape side window containment during commit — #48
 - [x] C-x o cycles into side windows despite no-other-window parameter — #49
 - [x] Side pane width not preserved after frame resize — #50
 - [ ] Managed transient splits in editor pane for side-pane-triggered visits — #52
-- [ ] Commit flow: focus should land on COMMIT_EDITMSG, not diff — #53
+- [x] Commit flow: focus should land on COMMIT_EDITMSG, not diff — #53
 - [ ] `knayawp--mode-off` can clobber user-set `project-switch-commands` — #60
 - [ ] Add `kb/` entry for `knayawp-mode` project-switch integration — #61
 - [ ] Re-install display-buffer-alist routing when knayawp-panels changes — #65

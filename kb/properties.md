@@ -65,3 +65,9 @@ Simply loading (`require`) the package must not activate any functionality. No h
 - If magit is not installed: the magit panel shows an informational buffer, not an error.
 - If the selected terminal backend is not installed: signal a `user-error` with a clear message naming the missing package.
 - If the frame is too narrow for the layout: skip the control pane and message the user.
+
+## P9: with-editor Cooperation
+
+knayawp's commit flow must not save or restore window configurations itself. The `with-editor` package's `with-editor-previous-winconf` mechanism is the source of truth for pre/post-commit layout. knayawp participates by zooming at `git-commit-setup-hook` and by setting focus on `with-editor-post-finish-hook` / `with-editor-post-cancel-hook`; it never calls `set-window-configuration`.
+
+P5's "no custom restoration code" clause applies to `q`-quit of magit transients within a single side window slot. The commit lifecycle is a distinct multi-buffer flow whose layout restoration is handled by `with-editor`'s built-in `with-editor-previous-winconf` mechanism, and the two properties do not conflict.
