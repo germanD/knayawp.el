@@ -52,6 +52,7 @@
 (defvar with-editor-post-finish-hook)
 (defvar with-editor-post-cancel-hook)
 (defvar server-switch-hook)
+(declare-function magit-mode-get-buffer "magit-mode")
 
 ;;;; Customization group
 
@@ -541,13 +542,45 @@ editor pane when the requested target is not available."
                (window-list)))))
 
 (defun knayawp--restore-commit-pre-state ()
-  "Reset `knayawp--commit-pre-state' and place focus.
+  "Reset commit-flow state, refresh the magit slot, and place focus.
 Does not perform a window-configuration restore: `with-editor'
 already restored the pre-commit layout via
-`with-editor-previous-winconf' before this runs.  Honors
-`knayawp-magit-commit-focus-after' for the focus target."
-  (let ((target (knayawp--focus-target-window)))
+`with-editor-previous-winconf' before this runs.
+
+Three side-effects, in order:
+
+1. Reset `knayawp--zoomed-panel' to the saved `:was-zoomed' value
+   so a subsequent commit can re-zoom (fixes Bug B: second commit
+   in the same session did not zoom).
+
+2. When the user was not in a manual zoom before the flow, replace
+   whatever buffer `with-editor' restored into the magit slot
+   (typically `*magit-diff*' because `magit-commit-create' shows
+   the diff synchronously before invoking `with-editor', so the
+   `with-editor-previous-winconf' snapshot already contains it)
+   with the project's `magit-status' buffer (fixes Bug A).
+
+3. Place focus according to `knayawp-magit-commit-focus-after'."
+  (let* ((target (knayawp--focus-target-window))
+         (was-zoomed (and knayawp--commit-pre-state
+                          (plist-get knayawp--commit-pre-state
+                                     :was-zoomed)))
+         (magit-spec (assq 'magit knayawp-panels))
+         (slot (and magit-spec (knayawp--panel-slot magit-spec)))
+         (magit-win (and slot (knayawp--side-window-for-slot slot))))
+    ;; (1) Restore the pre-flow zoom state (nil or the manual zoom
+    ;; symbol the user had active before they ran `c c').
+    (setq knayawp--zoomed-panel was-zoomed)
+    ;; (2) Re-display magit-status in the magit slot, unless the user
+    ;; was in a manual zoom (in which case the slot is theirs).
+    (unless was-zoomed
+      (when (and magit-win (window-live-p magit-win)
+                 (fboundp 'magit-mode-get-buffer))
+        (let ((status-buf (magit-mode-get-buffer 'magit-status-mode)))
+          (when (and status-buf (buffer-live-p status-buf))
+            (set-window-buffer magit-win status-buf)))))
     (setq knayawp--commit-pre-state nil)
+    ;; (3) Place focus per `knayawp-magit-commit-focus-after'.
     (when (and target (window-live-p target))
       (select-window target))))
 

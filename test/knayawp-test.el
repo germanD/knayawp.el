@@ -1105,4 +1105,134 @@ emacsclient invocation so a stray side effect would be system-wide."
       (knayawp--server-switch-handler)
       (should (= 0 touched)))))
 
+(ert-deftest knayawp-test-restore-commit-pre-state-resets-zoomed-panel ()
+  "`knayawp--restore-commit-pre-state' resets `knayawp--zoomed-panel'.
+Bug B (round 2 of PR #76 sandbox testing): after the first
+commit, `knayawp--zoomed-panel' was left at `magit', so the
+second commit's `knayawp--save-commit-pre-state' recorded
+`:was-zoomed t' and the flow skipped the zoom step.
+
+Two sub-cases:
+
+1. The pre-flow zoom was `terminal' (a legitimate manual zoom);
+   restore must put `knayawp--zoomed-panel' back to `terminal',
+   not nil.
+
+2. The pre-flow zoom was nil (no manual zoom); restore must put
+   `knayawp--zoomed-panel' back to nil so the next commit's zoom
+   step is allowed to fire."
+  ;; Sub-case 1: manual zoom pre-existed the flow.
+  (let ((knayawp--zoomed-panel 'terminal)
+        (knayawp--commit-pre-state nil))
+    (cl-letf (((symbol-function 'knayawp--focus-target-window)
+               (lambda () nil))
+              ((symbol-function 'knayawp--side-window-for-slot)
+               (lambda (_slot) nil)))
+      ;; Simulate the flow entry: save records `:was-zoomed 'terminal',
+      ;; then the zoom step is skipped (manual zoom already active) but
+      ;; `knayawp--zoomed-panel' stays at `terminal'.
+      (knayawp--save-commit-pre-state -1 nil)
+      (should (eq 'terminal
+                  (plist-get knayawp--commit-pre-state :was-zoomed)))
+      (knayawp--restore-commit-pre-state)
+      (should (eq 'terminal knayawp--zoomed-panel))
+      (should-not knayawp--commit-pre-state)))
+  ;; Sub-case 2: no manual zoom pre-existed.  Simulate Bug B's first
+  ;; commit: enter the flow (zoom is applied, sets the panel to
+  ;; `magit'), then restore must reset to nil.
+  (let ((knayawp--zoomed-panel nil)
+        (knayawp--commit-pre-state nil))
+    (cl-letf (((symbol-function 'knayawp--focus-target-window)
+               (lambda () nil))
+              ((symbol-function 'knayawp--side-window-for-slot)
+               (lambda (_slot) nil)))
+      (knayawp--save-commit-pre-state -1 nil)
+      (should-not (plist-get knayawp--commit-pre-state :was-zoomed))
+      ;; Imitate `knayawp--apply-zoom-solo-magit' side-effect.
+      (setq knayawp--zoomed-panel 'magit)
+      (knayawp--restore-commit-pre-state)
+      (should-not knayawp--zoomed-panel)
+      (should-not knayawp--commit-pre-state))))
+
+(ert-deftest knayawp-test-restore-commit-pre-state-redisplays-magit-status ()
+  "`knayawp--restore-commit-pre-state' re-displays magit-status.
+Bug A (round 2 of PR #76 sandbox testing): the
+`with-editor-previous-winconf' snapshot captured by
+`magit-commit-create' already contains `*magit-diff*' in the
+magit slot (the diff is shown synchronously before `with-editor'
+is invoked), so when `with-editor-return' restores the
+configuration on finish the user sees `*magit-diff*' where they
+expect magit-status.
+
+The restore step looks up the project's status buffer via
+`magit-mode-get-buffer' and re-displays it in the slot.  When the
+user was in a manual zoom before the flow, the slot is theirs and
+we must not touch it.
+
+Two sub-cases:
+
+1. `:was-zoomed' nil and status buffer is live: the slot's
+   `window-buffer' becomes the status buffer.
+
+2. `:was-zoomed' non-nil: the slot's buffer is left untouched."
+  ;; Sub-case 1: slot updated to magit-status.
+  (let* ((diff-buf
+          (generate-new-buffer " *knayawp-test-magit-diff*"))
+         (status-buf
+          (generate-new-buffer " *knayawp-test-magit-status*"))
+         (fake-magit-win (selected-window))
+         (slot-buffer diff-buf)
+         (knayawp--zoomed-panel nil)
+         (knayawp--commit-pre-state
+          (list :active t
+                :was-zoomed nil
+                :prior-magit-buf nil
+                :commit-buffer nil
+                :pre-commit-window fake-magit-win)))
+    (unwind-protect
+        (cl-letf (((symbol-function 'knayawp--side-window-for-slot)
+                   (lambda (_slot) fake-magit-win))
+                  ((symbol-function 'window-live-p)
+                   (lambda (_win) t))
+                  ((symbol-function 'magit-mode-get-buffer)
+                   (lambda (_mode) status-buf))
+                  ((symbol-function 'set-window-buffer)
+                   (lambda (_win buf) (setq slot-buffer buf)))
+                  ((symbol-function 'knayawp--focus-target-window)
+                   (lambda () nil)))
+          (knayawp--restore-commit-pre-state)
+          (should (eq slot-buffer status-buf)))
+      (when (buffer-live-p diff-buf) (kill-buffer diff-buf))
+      (when (buffer-live-p status-buf) (kill-buffer status-buf))))
+  ;; Sub-case 2: `:was-zoomed' truthy means the user had a manual
+  ;; zoom active; do not change the slot buffer.
+  (let* ((diff-buf
+          (generate-new-buffer " *knayawp-test-magit-diff-2*"))
+         (status-buf
+          (generate-new-buffer " *knayawp-test-magit-status-2*"))
+         (fake-magit-win (selected-window))
+         (slot-buffer diff-buf)
+         (knayawp--zoomed-panel 'terminal)
+         (knayawp--commit-pre-state
+          (list :active t
+                :was-zoomed 'terminal
+                :prior-magit-buf nil
+                :commit-buffer nil
+                :pre-commit-window fake-magit-win)))
+    (unwind-protect
+        (cl-letf (((symbol-function 'knayawp--side-window-for-slot)
+                   (lambda (_slot) fake-magit-win))
+                  ((symbol-function 'window-live-p)
+                   (lambda (_win) t))
+                  ((symbol-function 'magit-mode-get-buffer)
+                   (lambda (_mode) status-buf))
+                  ((symbol-function 'set-window-buffer)
+                   (lambda (_win buf) (setq slot-buffer buf)))
+                  ((symbol-function 'knayawp--focus-target-window)
+                   (lambda () nil)))
+          (knayawp--restore-commit-pre-state)
+          (should (eq slot-buffer diff-buf)))
+      (when (buffer-live-p diff-buf) (kill-buffer diff-buf))
+      (when (buffer-live-p status-buf) (kill-buffer status-buf)))))
+
 ;;; knayawp-test.el ends here
