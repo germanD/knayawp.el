@@ -51,6 +51,7 @@
 (defvar git-commit-setup-hook)
 (defvar with-editor-post-finish-hook)
 (defvar with-editor-post-cancel-hook)
+(defvar server-switch-hook)
 
 ;;;; Customization group
 
@@ -230,6 +231,10 @@ keys:
                      active, else nil.  Used to avoid double-zoom.
   :prior-magit-buf   Buffer that was displayed in the magit slot
                      before the commit started (defensive marker).
+  :commit-buffer     The COMMIT_EDITMSG buffer placed in the magit
+                     slot when the zoom started.  Re-selected by the
+                     `server-switch-hook' handler so it survives the
+                     `magit-commit-diff-while-committing' race.
   :pre-commit-window Window selected when the commit was initiated;
                      consulted when `knayawp-magit-commit-focus-after'
                      is `previous'.")
@@ -488,15 +493,20 @@ messaged once)."
   (and knayawp--commit-pre-state
        (plist-get knayawp--commit-pre-state :active)))
 
-(defun knayawp--save-commit-pre-state (magit-slot)
+(defun knayawp--save-commit-pre-state (magit-slot &optional commit-buffer)
   "Capture pre-commit layout state into `knayawp--commit-pre-state'.
-MAGIT-SLOT is the integer slot of the magit side window."
+MAGIT-SLOT is the integer slot of the magit side window.
+COMMIT-BUFFER, when non-nil, is the COMMIT_EDITMSG buffer that the
+commit-flow will place in the magit slot; it is recorded so the
+late `server-switch-hook' handler can re-select it after magit's
+`magit-commit-diff-while-committing' pushes the diff on top."
   (let* ((magit-win (knayawp--side-window-for-slot magit-slot))
          (prior-buf (and magit-win (window-buffer magit-win))))
     (setq knayawp--commit-pre-state
           (list :active            t
                 :was-zoomed        knayawp--zoomed-panel
                 :prior-magit-buf   prior-buf
+                :commit-buffer     commit-buffer
                 :pre-commit-window (selected-window)))))
 
 (defun knayawp--focus-target-window ()
@@ -562,9 +572,10 @@ slot via `knayawp--apply-zoom-solo-magit', and select the
 COMMIT_EDITMSG buffer when the current buffer is a git-commit
 buffer."
   (let* ((magit-spec (assq 'magit knayawp-panels))
-         (slot (and magit-spec (knayawp--panel-slot magit-spec))))
+         (slot (and magit-spec (knayawp--panel-slot magit-spec)))
+         (commit-buf (current-buffer)))
     (when slot
-      (knayawp--save-commit-pre-state slot)
+      (knayawp--save-commit-pre-state slot commit-buf)
       ;; Skip the zoom step when a manual zoom is already active so
       ;; we don't clobber the user's preferred slot.
       (unless (plist-get knayawp--commit-pre-state :was-zoomed)
@@ -572,8 +583,7 @@ buffer."
       ;; Ensure the COMMIT_EDITMSG buffer is selected in the magit
       ;; slot.  `git-commit-setup-hook' runs with current-buffer
       ;; already set to COMMIT_EDITMSG, so reuse it.
-      (let ((commit-buf (current-buffer))
-            (magit-win (knayawp--side-window-for-slot slot)))
+      (let ((magit-win (knayawp--side-window-for-slot slot)))
         (when (and magit-win (window-live-p magit-win))
           (set-window-buffer magit-win commit-buf)
           (select-window magit-win))))))
@@ -610,10 +620,31 @@ Run `knayawp--commit-flow-end' when our flow is active."
 Run `knayawp--commit-flow-end' when our flow is active."
   (knayawp--commit-flow-end))
 
+(defun knayawp--server-switch-handler ()
+  "Hook function for `server-switch-hook'.
+Re-assert COMMIT_EDITMSG in the magit side window after the
+emacsclient server switch completes.  Installed with the APPEND
+flag so it runs after `magit-commit-diff-while-committing', which
+otherwise lands `*magit-diff*' in the zoomed magit slot and steals
+focus.  No-op unless a commit-flow session is active."
+  (when (knayawp--commit-flow-active-p)
+    (let* ((magit-spec (assq 'magit knayawp-panels))
+           (slot (and magit-spec (knayawp--panel-slot magit-spec)))
+           (magit-win (and slot (knayawp--side-window-for-slot slot)))
+           (commit-buf (plist-get knayawp--commit-pre-state
+                                  :commit-buffer)))
+      (when (and magit-win
+                 (window-live-p magit-win)
+                 (buffer-live-p commit-buf))
+        (set-window-buffer magit-win commit-buf)
+        (select-window magit-win)))))
+
 (defun knayawp--install-commit-hooks ()
   "Register knayawp's commit-flow handlers on the relevant hooks.
 Idempotent.  Called from `knayawp--setup-magit-integration' when
-the resolved commit style is `zoom'."
+the resolved commit style is `zoom'.  The `server-switch-hook'
+entry is installed with APPEND so it runs after magit's own
+`magit-commit-diff-while-committing', winning the focus race."
   (unless knayawp--commit-hooks-installed
     (add-hook 'git-commit-setup-hook
               #'knayawp--git-commit-setup-handler)
@@ -621,6 +652,8 @@ the resolved commit style is `zoom'."
               #'knayawp--with-editor-finish-handler)
     (add-hook 'with-editor-post-cancel-hook
               #'knayawp--with-editor-cancel-handler)
+    (add-hook 'server-switch-hook
+              #'knayawp--server-switch-handler t)
     (setq knayawp--commit-hooks-installed t)))
 
 (defun knayawp--remove-commit-hooks ()
@@ -633,6 +666,8 @@ Inverse of `knayawp--install-commit-hooks'.  Idempotent."
                  #'knayawp--with-editor-finish-handler)
     (remove-hook 'with-editor-post-cancel-hook
                  #'knayawp--with-editor-cancel-handler)
+    (remove-hook 'server-switch-hook
+                 #'knayawp--server-switch-handler)
     (setq knayawp--commit-hooks-installed nil)))
 
 (defun knayawp--setup-magit-integration ()

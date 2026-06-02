@@ -874,7 +874,10 @@ Setup installs no COMMIT_EDITMSG entry and no commit hooks."
         (setq magit-display-buffer-function original)))))
 
 (ert-deftest knayawp-test-commit-hooks-installed-when-zoom ()
-  "With style = `zoom', setup installs all three commit hooks."
+  "With style = `zoom', setup installs all four commit hooks.
+Also asserts that `server-switch-hook' is APPENDED — its entry
+must land after any pre-existing entries so `knayawp's late
+focus-grab runs after `magit-commit-diff-while-committing'."
   (when (require 'magit nil t)
     (let ((original magit-display-buffer-function)
           (knayawp--magit-saved-display-fn nil)
@@ -887,6 +890,9 @@ Setup installs no COMMIT_EDITMSG entry and no commit hooks."
           (git-commit-setup-hook nil)
           (with-editor-post-finish-hook nil)
           (with-editor-post-cancel-hook nil)
+          ;; Seed `server-switch-hook' with a sentinel so we can
+          ;; verify the knayawp handler is appended after it.
+          (server-switch-hook '(ignore))
           (display-buffer-alist nil))
       (unwind-protect
           (progn
@@ -897,12 +903,17 @@ Setup installs no COMMIT_EDITMSG entry and no commit hooks."
                           with-editor-post-finish-hook))
             (should (memq #'knayawp--with-editor-cancel-handler
                           with-editor-post-cancel-hook))
+            (should (memq #'knayawp--server-switch-handler
+                          server-switch-hook))
+            ;; Sentinel must precede the knayawp entry: appended.
+            (should (equal (last server-switch-hook)
+                           (list #'knayawp--server-switch-handler)))
             (should knayawp--commit-hooks-installed))
         (knayawp--teardown-magit-integration)
         (setq magit-display-buffer-function original)))))
 
 (ert-deftest knayawp-test-commit-hooks-removed-on-teardown ()
-  "Teardown unregisters all three commit-flow handlers."
+  "Teardown unregisters all four commit-flow handlers."
   (when (require 'magit nil t)
     (let ((original magit-display-buffer-function)
           (knayawp--magit-saved-display-fn nil)
@@ -915,6 +926,7 @@ Setup installs no COMMIT_EDITMSG entry and no commit hooks."
           (git-commit-setup-hook nil)
           (with-editor-post-finish-hook nil)
           (with-editor-post-cancel-hook nil)
+          (server-switch-hook nil)
           (display-buffer-alist nil))
       (unwind-protect
           (progn
@@ -926,24 +938,38 @@ Setup installs no COMMIT_EDITMSG entry and no commit hooks."
                               with-editor-post-finish-hook))
             (should-not (memq #'knayawp--with-editor-cancel-handler
                               with-editor-post-cancel-hook))
+            (should-not (memq #'knayawp--server-switch-handler
+                              server-switch-hook))
             (should-not knayawp--commit-hooks-installed))
         (setq magit-display-buffer-function original)))))
 
 (ert-deftest knayawp-test-commit-pre-state-shape ()
   "`knayawp--save-commit-pre-state' populates all expected plist keys."
   (let ((knayawp--commit-pre-state nil)
-        (knayawp--zoomed-panel nil))
-    (cl-letf (((symbol-function 'knayawp--side-window-for-slot)
-               (lambda (_slot) nil)))
-      (knayawp--save-commit-pre-state -1))
-    (should (plist-member knayawp--commit-pre-state :active))
-    (should (plist-member knayawp--commit-pre-state :was-zoomed))
-    (should (plist-member knayawp--commit-pre-state :prior-magit-buf))
-    (should (plist-member knayawp--commit-pre-state :pre-commit-window))
-    (should (eq t (plist-get knayawp--commit-pre-state :active)))
-    (should (windowp (plist-get knayawp--commit-pre-state
-                                :pre-commit-window)))
-    (setq knayawp--commit-pre-state nil)))
+        (knayawp--zoomed-panel nil)
+        (fake-commit-buf (generate-new-buffer " *knayawp-test-commit*")))
+    (unwind-protect
+        (progn
+          (cl-letf (((symbol-function 'knayawp--side-window-for-slot)
+                     (lambda (_slot) nil)))
+            (knayawp--save-commit-pre-state -1 fake-commit-buf))
+          (should (plist-member knayawp--commit-pre-state :active))
+          (should (plist-member knayawp--commit-pre-state :was-zoomed))
+          (should (plist-member knayawp--commit-pre-state
+                                :prior-magit-buf))
+          (should (plist-member knayawp--commit-pre-state
+                                :commit-buffer))
+          (should (plist-member knayawp--commit-pre-state
+                                :pre-commit-window))
+          (should (eq t (plist-get knayawp--commit-pre-state :active)))
+          (should (eq fake-commit-buf
+                      (plist-get knayawp--commit-pre-state
+                                 :commit-buffer)))
+          (should (windowp (plist-get knayawp--commit-pre-state
+                                      :pre-commit-window))))
+      (setq knayawp--commit-pre-state nil)
+      (when (buffer-live-p fake-commit-buf)
+        (kill-buffer fake-commit-buf)))))
 
 (ert-deftest knayawp-test-commit-flow-handler-gating ()
   "Setup-handler is a no-op when conditions are not met.
@@ -1019,5 +1045,64 @@ second call is a no-op because no flow is active."
                (lambda () nil)))
       (knayawp-layout-teardown))
     (should-not knayawp--commit-pre-state)))
+
+(ert-deftest knayawp-test-server-switch-handler-reasserts-commit ()
+  "`knayawp--server-switch-handler' re-selects COMMIT_EDITMSG.
+Simulates the magit-commit-diff-while-committing race: the magit
+slot's buffer has been displaced by a stand-in `*magit-diff*' and
+focus has wandered.  After the handler runs the magit window
+must show the recorded COMMIT_EDITMSG buffer again, and the
+magit window must be the selected window.
+
+Reproduces the scenario found during manual scenario 1 of PR
+#76 review (focus landing on the diff instead of the commit
+message)."
+  (let* ((commit-buf
+          (generate-new-buffer " *knayawp-test-COMMIT_EDITMSG*"))
+         (diff-buf
+          (generate-new-buffer " *knayawp-test-magit-diff*"))
+         (fake-magit-win (selected-window))
+         (selected nil)
+         (knayawp--commit-pre-state
+          (list :active t
+                :was-zoomed nil
+                :prior-magit-buf nil
+                :commit-buffer commit-buf
+                :pre-commit-window fake-magit-win)))
+    (unwind-protect
+        (cl-letf (((symbol-function 'knayawp--side-window-for-slot)
+                   (lambda (_slot) fake-magit-win))
+                  ((symbol-function 'set-window-buffer)
+                   (lambda (_win buf) (setq selected buf)))
+                  ((symbol-function 'select-window)
+                   (lambda (win &optional _norecord)
+                     (setq fake-magit-win win)
+                     win)))
+          ;; Simulate the race: the slot has been clobbered by the
+          ;; diff buffer and focus has drifted there.
+          (setq selected diff-buf)
+          (knayawp--server-switch-handler)
+          (should (eq selected commit-buf))
+          (should (eq fake-magit-win (selected-window))))
+      (when (buffer-live-p commit-buf) (kill-buffer commit-buf))
+      (when (buffer-live-p diff-buf) (kill-buffer diff-buf)))))
+
+(ert-deftest knayawp-test-server-switch-handler-noop-without-flow ()
+  "`knayawp--server-switch-handler' does nothing when idle.
+With no commit-flow session active the handler must not touch
+`set-window-buffer' or `select-window' — the hook runs on every
+emacsclient invocation so a stray side effect would be system-wide."
+  (let ((knayawp--commit-pre-state nil)
+        (touched 0))
+    (cl-letf (((symbol-function 'knayawp--side-window-for-slot)
+               (lambda (_slot)
+                 (cl-incf touched)
+                 (selected-window)))
+              ((symbol-function 'set-window-buffer)
+               (lambda (&rest _) (cl-incf touched)))
+              ((symbol-function 'select-window)
+               (lambda (&rest _) (cl-incf touched))))
+      (knayawp--server-switch-handler)
+      (should (= 0 touched)))))
 
 ;;; knayawp-test.el ends here
