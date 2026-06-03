@@ -1235,4 +1235,85 @@ Two sub-cases:
       (when (buffer-live-p diff-buf) (kill-buffer diff-buf))
       (when (buffer-live-p status-buf) (kill-buffer status-buf)))))
 
+(ert-deftest knayawp-test-commit-flow-start-captures-winconf ()
+  "`knayawp--commit-flow-start' records the pre-zoom winconf.
+Round 3 of PR #76 sandbox testing showed only one side window
+remaining after `C-c C-c': `with-editor-previous-winconf' was
+captured AFTER our setup handler had already zoomed the layout,
+so the snapshot only contained the magit slot.
+
+The fix is for knayawp to capture its own winconf in
+`knayawp--commit-flow-start' before the zoom step.  This test
+exercises just the capture: invoking the flow-start in a
+controlled context must populate the `:winconf' plist key with a
+`window-configuration-p' object."
+  (let ((knayawp--commit-pre-state nil)
+        (knayawp--zoomed-panel nil)
+        (knayawp-panels '((magit :slot -1)
+                          (terminal :slot 0)
+                          (claude :slot 1))))
+    (cl-letf (((symbol-function 'knayawp--side-window-for-slot)
+               (lambda (_slot) (selected-window)))
+              ((symbol-function 'knayawp--apply-zoom-solo-magit)
+               #'ignore))
+      (knayawp--commit-flow-start)
+      (should (plist-member knayawp--commit-pre-state :winconf))
+      (should (window-configuration-p
+               (plist-get knayawp--commit-pre-state :winconf))))
+    (setq knayawp--commit-pre-state nil)))
+
+(ert-deftest knayawp-test-restore-commit-pre-state-restores-winconf ()
+  "Restore step calls `set-window-configuration' on the saved winconf.
+The saved winconf snapshots the layout BEFORE the zoom step, so
+restoring it brings back the terminal and Claude side windows
+that `with-editor's later restore could not."
+  (let* ((sentinel (current-window-configuration))
+         (called-with 'unset)
+         (knayawp--zoomed-panel nil)
+         (knayawp--commit-pre-state
+          (list :active t
+                :was-zoomed nil
+                :prior-magit-buf nil
+                :commit-buffer nil
+                :pre-commit-window (selected-window)
+                :winconf sentinel)))
+    (cl-letf (((symbol-function 'set-window-configuration)
+               (lambda (wc &rest _) (setq called-with wc)))
+              ((symbol-function 'window-configuration-frame)
+               (lambda (_wc) (selected-frame)))
+              ((symbol-function 'knayawp--side-window-for-slot)
+               (lambda (_slot) nil))
+              ((symbol-function 'knayawp--focus-target-window)
+               (lambda () nil)))
+      (knayawp--restore-commit-pre-state)
+      (should (eq called-with sentinel)))))
+
+(ert-deftest knayawp-test-restore-commit-pre-state-skips-winconf-wrong-frame ()
+  "Restore step does NOT touch winconf when its frame is gone.
+Cross-frame restores can crash or scramble the layout when the
+recorded frame is no longer selected.  The guard checks
+`window-configuration-frame' against `selected-frame' and skips
+the restore on mismatch."
+  (let* ((sentinel (current-window-configuration))
+         (other-frame (cons 'fake-frame 'sentinel))
+         (called-with 'unset)
+         (knayawp--zoomed-panel nil)
+         (knayawp--commit-pre-state
+          (list :active t
+                :was-zoomed nil
+                :prior-magit-buf nil
+                :commit-buffer nil
+                :pre-commit-window (selected-window)
+                :winconf sentinel)))
+    (cl-letf (((symbol-function 'set-window-configuration)
+               (lambda (wc &rest _) (setq called-with wc)))
+              ((symbol-function 'window-configuration-frame)
+               (lambda (_wc) other-frame))
+              ((symbol-function 'knayawp--side-window-for-slot)
+               (lambda (_slot) nil))
+              ((symbol-function 'knayawp--focus-target-window)
+               (lambda () nil)))
+      (knayawp--restore-commit-pre-state)
+      (should (eq called-with 'unset)))))
+
 ;;; knayawp-test.el ends here
