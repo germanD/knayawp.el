@@ -494,13 +494,19 @@ messaged once)."
   (and knayawp--commit-pre-state
        (plist-get knayawp--commit-pre-state :active)))
 
-(defun knayawp--save-commit-pre-state (magit-slot &optional commit-buffer)
+(defun knayawp--save-commit-pre-state (magit-slot &optional commit-buffer
+                                                  winconf)
   "Capture pre-commit layout state into `knayawp--commit-pre-state'.
 MAGIT-SLOT is the integer slot of the magit side window.
 COMMIT-BUFFER, when non-nil, is the COMMIT_EDITMSG buffer that the
 commit-flow will place in the magit slot; it is recorded so the
 late `server-switch-hook' handler can re-select it after magit's
-`magit-commit-diff-while-committing' pushes the diff on top."
+`magit-commit-diff-while-committing' pushes the diff on top.
+WINCONF, when non-nil, is the window configuration captured by
+`knayawp--commit-flow-start' *before* the zoom step ran; it is
+the only snapshot that still contains the terminal and Claude
+side windows, and `knayawp--restore-commit-pre-state' uses it to
+override the stale layout that `with-editor' restored."
   (let* ((magit-win (knayawp--side-window-for-slot magit-slot))
          (prior-buf (and magit-win (window-buffer magit-win))))
     (setq knayawp--commit-pre-state
@@ -508,7 +514,8 @@ late `server-switch-hook' handler can re-select it after magit's
                 :was-zoomed        knayawp--zoomed-panel
                 :prior-magit-buf   prior-buf
                 :commit-buffer     commit-buffer
-                :pre-commit-window (selected-window)))))
+                :pre-commit-window (selected-window)
+                :winconf           winconf))))
 
 (defun knayawp--focus-target-window ()
   "Return the window to select after a commit finishes or cancels.
@@ -542,47 +549,73 @@ editor pane when the requested target is not available."
                (window-list)))))
 
 (defun knayawp--restore-commit-pre-state ()
-  "Reset commit-flow state, refresh the magit slot, and place focus.
-Does not perform a window-configuration restore: `with-editor'
-already restored the pre-commit layout via
-`with-editor-previous-winconf' before this runs.
+  "Restore the pre-zoom layout, refresh the magit slot, place focus.
+The `with-editor' restore that ran just before this function uses
+`with-editor-previous-winconf', captured *after* our
+`knayawp--git-commit-setup-handler' had already zoomed the
+layout.  That snapshot therefore only contains the magit slot —
+the terminal and Claude side windows are gone.  To get them back
+we restore the winconf knayawp captured itself in
+`knayawp--commit-flow-start' before the zoom step ran.
 
-Three side-effects, in order:
+Four side-effects, in order:
 
-1. Reset `knayawp--zoomed-panel' to the saved `:was-zoomed' value
+1. When `:winconf' is present and its frame matches the selected
+   frame, call `set-window-configuration' on it to reinstate the
+   full 3-panel layout (fixes the round 3 bug: only one side
+   window left after the commit-finish keybinding).
+
+2. Reset `knayawp--zoomed-panel' to the saved `:was-zoomed' value
    so a subsequent commit can re-zoom (fixes Bug B: second commit
    in the same session did not zoom).
 
-2. When the user was not in a manual zoom before the flow, replace
-   whatever buffer `with-editor' restored into the magit slot
+3. When the user was not in a manual zoom before the flow, replace
+   whatever buffer the restored winconf left in the magit slot
    (typically `*magit-diff*' because `magit-commit-create' shows
-   the diff synchronously before invoking `with-editor', so the
-   `with-editor-previous-winconf' snapshot already contains it)
-   with the project's `magit-status' buffer (fixes Bug A).
+   the diff synchronously before our setup handler captured the
+   winconf) with the project's `magit-status' buffer (fixes Bug A).
 
-3. Place focus according to `knayawp-magit-commit-focus-after'."
-  (let* ((target (knayawp--focus-target-window))
-         (was-zoomed (and knayawp--commit-pre-state
+4. Place focus according to `knayawp-magit-commit-focus-after'.
+
+The magit-window lookup happens AFTER the winconf restore because
+the pre-restore window tree contains only the zoomed slot, and
+the post-restore lookup gives us the live window inside the
+re-expanded layout."
+  (let* ((was-zoomed (and knayawp--commit-pre-state
                           (plist-get knayawp--commit-pre-state
                                      :was-zoomed)))
-         (magit-spec (assq 'magit knayawp-panels))
-         (slot (and magit-spec (knayawp--panel-slot magit-spec)))
-         (magit-win (and slot (knayawp--side-window-for-slot slot))))
-    ;; (1) Restore the pre-flow zoom state (nil or the manual zoom
-    ;; symbol the user had active before they ran `c c').
-    (setq knayawp--zoomed-panel was-zoomed)
-    ;; (2) Re-display magit-status in the magit slot, unless the user
-    ;; was in a manual zoom (in which case the slot is theirs).
-    (unless was-zoomed
-      (when (and magit-win (window-live-p magit-win)
-                 (fboundp 'magit-mode-get-buffer))
-        (let ((status-buf (magit-mode-get-buffer 'magit-status-mode)))
-          (when (and status-buf (buffer-live-p status-buf))
-            (set-window-buffer magit-win status-buf)))))
-    (setq knayawp--commit-pre-state nil)
-    ;; (3) Place focus per `knayawp-magit-commit-focus-after'.
-    (when (and target (window-live-p target))
-      (select-window target))))
+         (winconf (and knayawp--commit-pre-state
+                       (plist-get knayawp--commit-pre-state
+                                  :winconf))))
+    ;; (1) Restore the pre-zoom layout when the saved winconf still
+    ;; belongs to the current frame.  Cross-frame restore would crash
+    ;; or scramble the layout, so be conservative.
+    (when (and winconf
+               (window-configuration-p winconf)
+               (eq (window-configuration-frame winconf)
+                   (selected-frame)))
+      (set-window-configuration winconf))
+    ;; Magit-window and focus-target lookups MUST happen after the
+    ;; restore: pre-restore the window tree is the zoomed one.
+    (let* ((target (knayawp--focus-target-window))
+           (magit-spec (assq 'magit knayawp-panels))
+           (slot (and magit-spec (knayawp--panel-slot magit-spec)))
+           (magit-win (and slot (knayawp--side-window-for-slot slot))))
+      ;; (2) Restore the pre-flow zoom state (nil or the manual zoom
+      ;; symbol the user had active before they ran `c c').
+      (setq knayawp--zoomed-panel was-zoomed)
+      ;; (3) Re-display magit-status in the magit slot, unless the
+      ;; user was in a manual zoom (in which case the slot is theirs).
+      (unless was-zoomed
+        (when (and magit-win (window-live-p magit-win)
+                   (fboundp 'magit-mode-get-buffer))
+          (let ((status-buf (magit-mode-get-buffer 'magit-status-mode)))
+            (when (and status-buf (buffer-live-p status-buf))
+              (set-window-buffer magit-win status-buf)))))
+      (setq knayawp--commit-pre-state nil)
+      ;; (4) Place focus per `knayawp-magit-commit-focus-after'.
+      (when (and target (window-live-p target))
+        (select-window target)))))
 
 (defun knayawp--apply-zoom-solo-magit ()
   "Zoom the layout down to just the magit side window.
@@ -600,15 +633,26 @@ named entry point so the v0.3.0 layout-system refactor (issue
 
 (defun knayawp--commit-flow-start ()
   "Enter the commit-zoom mode.
-Capture state into `knayawp--commit-pre-state', zoom the magit
-slot via `knayawp--apply-zoom-solo-magit', and select the
-COMMIT_EDITMSG buffer when the current buffer is a git-commit
-buffer."
+Capture the pre-zoom window configuration (so
+`knayawp--restore-commit-pre-state' can reinstate the full
+3-panel layout on finish) and the rest of the pre-commit state
+into `knayawp--commit-pre-state', zoom the magit slot via
+`knayawp--apply-zoom-solo-magit', and select the COMMIT_EDITMSG
+buffer when the current buffer is a git-commit buffer.
+
+The winconf capture must run BEFORE the zoom step: the zoom
+deletes the terminal and Claude side windows, and we need a
+snapshot that still contains them so the restore step can bring
+them back.  `with-editor' captures its own winconf later (in
+`with-editor-mode'), but by then the layout has already been
+zoomed and that snapshot is useless for restoring the side
+windows."
   (let* ((magit-spec (assq 'magit knayawp-panels))
          (slot (and magit-spec (knayawp--panel-slot magit-spec)))
-         (commit-buf (current-buffer)))
+         (commit-buf (current-buffer))
+         (winconf (current-window-configuration)))
     (when slot
-      (knayawp--save-commit-pre-state slot commit-buf)
+      (knayawp--save-commit-pre-state slot commit-buf winconf)
       ;; Skip the zoom step when a manual zoom is already active so
       ;; we don't clobber the user's preferred slot.
       (unless (plist-get knayawp--commit-pre-state :was-zoomed)
