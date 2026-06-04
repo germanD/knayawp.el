@@ -66,8 +66,12 @@ Simply loading (`require`) the package must not activate any functionality. No h
 - If the selected terminal backend is not installed: signal a `user-error` with a clear message naming the missing package.
 - If the frame is too narrow for the layout: skip the control pane and message the user.
 
-## P9: with-editor Cooperation
+## P9: with-editor Cooperation via Self-Managed Winconf
 
-knayawp's commit flow must not save or restore window configurations itself. The `with-editor` package's `with-editor-previous-winconf` mechanism is the source of truth for pre/post-commit layout. knayawp participates by zooming at `git-commit-setup-hook` and by setting focus on `with-editor-post-finish-hook` / `with-editor-post-cancel-hook`; it never calls `set-window-configuration`.
+When the `'zoom` commit style is active, knayawp captures `(current-window-configuration)` in `knayawp--commit-flow-start` *before* mutating the layout (i.e. before `knayawp--apply-zoom-solo-magit` runs). On commit finish or cancel, `knayawp--restore-commit-pre-state` calls `set-window-configuration` on that captured snapshot, overriding the restore that `with-editor` performs from its own `with-editor-previous-winconf`. with-editor's snapshot is captured *after* knayawp's `git-commit-setup-hook` handler has already zoomed, so it only contains the magit slot — restoring from it would lose the terminal and Claude side windows. knayawp's own snapshot, taken pre-zoom, is the only reliable source for the full 3-panel layout.
 
-P5's "no custom restoration code" clause applies to `q`-quit of magit transients within a single side window slot. The commit lifecycle is a distinct multi-buffer flow whose layout restoration is handled by `with-editor`'s built-in `with-editor-previous-winconf` mechanism, and the two properties do not conflict.
+knayawp does not advise or rebind any with-editor function. It cooperates through documented extension points: `git-commit-setup-hook` to enter the zoom, and `with-editor-post-finish-hook` / `with-editor-post-cancel-hook` to drive the restore. with-editor's own `set-window-configuration` call runs first and is intentionally overwritten by ours.
+
+**Why:** Running our restore after with-editor's restore (rather than instead of it) avoids touching with-editor internals while still producing the right post-commit layout. The restore is gated on `(eq (window-configuration-frame winconf) (selected-frame))` to avoid cross-frame scrambling.
+
+P5's "no custom restoration code" clause applies to `q`-quit of magit transients within a single side window slot. The commit lifecycle is a distinct multi-buffer flow that legitimately requires knayawp-managed restoration, and the two properties do not conflict.
