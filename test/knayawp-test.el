@@ -1316,4 +1316,143 @@ the restore on mismatch."
       (knayawp--restore-commit-pre-state)
       (should (eq called-with 'unset)))))
 
+;;;; Commit-style reconcile (#76 follow-up)
+
+(ert-deftest knayawp-test-reconcile-zoom-to-editor ()
+  "Reconcile drops zoom hooks and installs the COMMIT_EDITMSG entry.
+Models the runtime path that the scenario-2 probe exposed: setup
+ran under `zoom', the user then changed `knayawp-magit-commit-style'
+to `editor', and the integration must reflect the new style."
+  (when (require 'magit nil t)
+    (let ((original magit-display-buffer-function)
+          (knayawp--magit-saved-display-fn nil)
+          (knayawp--commit-display-entry nil)
+          (knayawp--process-display-entry nil)
+          (knayawp--commit-hooks-installed nil)
+          (knayawp--commit-style-shim-warned t)
+          (knayawp-magit-commit-style 'zoom)
+          (git-commit-setup-hook nil)
+          (with-editor-post-finish-hook nil)
+          (with-editor-post-cancel-hook nil)
+          (server-switch-hook nil)
+          (display-buffer-alist nil))
+      (unwind-protect
+          (progn
+            (knayawp--setup-magit-integration)
+            ;; Sanity: zoom state installed, editor entry absent.
+            (should knayawp--commit-hooks-installed)
+            (should-not knayawp--commit-display-entry)
+            ;; Flip the style and reconcile.
+            (setq knayawp-magit-commit-style 'editor)
+            (knayawp--reconcile-commit-style)
+            (should-not knayawp--commit-hooks-installed)
+            (should-not (memq #'knayawp--git-commit-setup-handler
+                              git-commit-setup-hook))
+            (should knayawp--commit-display-entry)
+            (should (memq knayawp--commit-display-entry
+                          display-buffer-alist)))
+        (knayawp--teardown-magit-integration)
+        (setq magit-display-buffer-function original)))))
+
+(ert-deftest knayawp-test-reconcile-zoom-to-off ()
+  "Reconcile under `off' removes hooks AND the COMMIT_EDITMSG entry."
+  (when (require 'magit nil t)
+    (let ((original magit-display-buffer-function)
+          (knayawp--magit-saved-display-fn nil)
+          (knayawp--commit-display-entry nil)
+          (knayawp--process-display-entry nil)
+          (knayawp--commit-hooks-installed nil)
+          (knayawp--commit-style-shim-warned t)
+          (knayawp-magit-commit-style 'zoom)
+          (git-commit-setup-hook nil)
+          (with-editor-post-finish-hook nil)
+          (with-editor-post-cancel-hook nil)
+          (server-switch-hook nil)
+          (display-buffer-alist nil))
+      (unwind-protect
+          (progn
+            (knayawp--setup-magit-integration)
+            (should knayawp--commit-hooks-installed)
+            (setq knayawp-magit-commit-style 'off)
+            (knayawp--reconcile-commit-style)
+            (should-not knayawp--commit-hooks-installed)
+            (should-not knayawp--commit-display-entry))
+        (knayawp--teardown-magit-integration)
+        (setq magit-display-buffer-function original)))))
+
+(ert-deftest knayawp-test-reconcile-idempotent ()
+  "Reconcile is a no-op when the resolved style has not changed."
+  (when (require 'magit nil t)
+    (let ((original magit-display-buffer-function)
+          (knayawp--magit-saved-display-fn nil)
+          (knayawp--commit-display-entry nil)
+          (knayawp--process-display-entry nil)
+          (knayawp--commit-hooks-installed nil)
+          (knayawp--commit-style-shim-warned t)
+          (knayawp-magit-commit-style 'editor)
+          (knayawp-magit-commit-in-editor-flag nil)
+          (display-buffer-alist nil))
+      (unwind-protect
+          (progn
+            (knayawp--setup-magit-integration)
+            (let ((entry knayawp--commit-display-entry))
+              (should entry)
+              ;; Second reconcile must not duplicate or drop the entry.
+              (knayawp--reconcile-commit-style)
+              (should (eq entry knayawp--commit-display-entry))
+              (should (= 1 (cl-count-if
+                            (lambda (e)
+                              (and (stringp (car e))
+                                   (string-match-p "COMMIT_EDITMSG"
+                                                   (car e))))
+                            display-buffer-alist)))))
+        (knayawp--teardown-magit-integration)
+        (setq magit-display-buffer-function original)))))
+
+(ert-deftest knayawp-test-commit-style-setter-reconciles-when-active ()
+  "Setting via `customize-set-variable' reconciles when active.
+Gates on `magit-display-buffer-function' being knayawp's: this is
+the only honest signal that the magit integration is currently
+installed."
+  (when (require 'magit nil t)
+    (let* ((calls 0)
+           (saved-style (default-value 'knayawp-magit-commit-style))
+           (original magit-display-buffer-function))
+      (unwind-protect
+          (cl-letf (((symbol-function 'knayawp--reconcile-commit-style)
+                     (lambda () (setq calls (1+ calls)))))
+            ;; Active integration: setter must reconcile.
+            (setq magit-display-buffer-function
+                  #'knayawp--magit-display-buffer)
+            (customize-set-variable 'knayawp-magit-commit-style 'editor)
+            (should (= 1 calls))
+            (customize-set-variable 'knayawp-magit-commit-style 'off)
+            (should (= 2 calls)))
+        (customize-set-variable 'knayawp-magit-commit-style saved-style)
+        (setq magit-display-buffer-function original)))))
+
+(ert-deftest knayawp-test-commit-style-setter-passive-when-inactive ()
+  "Setter is a no-op when no magit integration is installed.
+Loading the package and tweaking the option without ever calling
+`knayawp-layout-setup' must not install hooks or entries (P7
+passive-loading discipline carries through to the customize path)."
+  (let* ((calls 0)
+         (saved-style (default-value 'knayawp-magit-commit-style))
+         (original (and (boundp 'magit-display-buffer-function)
+                        magit-display-buffer-function)))
+    (unwind-protect
+        (cl-letf (((symbol-function 'knayawp--reconcile-commit-style)
+                   (lambda () (setq calls (1+ calls)))))
+          ;; No integration: ensure the display-buffer-function is NOT
+          ;; knayawp's, regardless of test ordering.
+          (setq magit-display-buffer-function
+                (or original #'ignore))
+          (customize-set-variable 'knayawp-magit-commit-style 'editor)
+          (customize-set-variable 'knayawp-magit-commit-style 'zoom)
+          (customize-set-variable 'knayawp-magit-commit-style 'off)
+          (should (zerop calls)))
+      (customize-set-variable 'knayawp-magit-commit-style saved-style)
+      (when original
+        (setq magit-display-buffer-function original)))))
+
 ;;; knayawp-test.el ends here
