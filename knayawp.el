@@ -113,9 +113,14 @@ Useful for users with their own magit display function.
 
 Changing this value at runtime affects future commit sessions
 only; an in-progress commit completes under the style it was
-started with.  Run \\[knayawp-layout-setup] (or tear down and
-re-create the layout) to install or remove the relevant hooks
-after a change.
+started with.  When the magit integration is currently active
+\(i.e. a knayawp layout has been set up), setting this option via
+\\[customize-option], `setopt', or `customize-set-variable'
+triggers an immediate reconcile: hooks and `display-buffer-alist'
+entries from the previous style are removed and those for the
+new style are installed.  Plain `setq' bypasses the `:set' form
+\(standard Emacs behavior); after a `setq', call
+\\[knayawp-layout-setup] to apply the new style.
 
 The `zoom' value requires `knayawp-layout-setup' to have been
 called: zoom is a no-op without an active layout.  The other two
@@ -124,6 +129,18 @@ values are also no-ops without the layout."
                  (const :tag "Pop COMMIT_EDITMSG to editor pane" editor)
                  (const :tag "Default magit display (no special handling)"
                         off))
+  :set (lambda (sym val)
+         (set-default sym val)
+         ;; Reconcile commit-style state only when the magit
+         ;; integration is currently installed; otherwise the new
+         ;; value is picked up by the next `knayawp-layout-setup'.
+         ;; `fboundp' guard tolerates a `setopt' issued before
+         ;; the rest of the file has finished loading.
+         (when (and (fboundp 'knayawp--reconcile-commit-style)
+                    (boundp 'magit-display-buffer-function)
+                    (eq magit-display-buffer-function
+                        #'knayawp--magit-display-buffer))
+           (knayawp--reconcile-commit-style)))
   :group 'knayawp)
 
 (defcustom knayawp-magit-commit-focus-after 'editor
@@ -747,16 +764,58 @@ Inverse of `knayawp--install-commit-hooks'.  Idempotent."
                  #'knayawp--server-switch-handler)
     (setq knayawp--commit-hooks-installed nil)))
 
+(defun knayawp--install-commit-display-entry ()
+  "Install the COMMIT_EDITMSG `display-buffer-alist' entry.
+Idempotent: if the entry is already in place, do nothing."
+  (unless knayawp--commit-display-entry
+    (setq knayawp--commit-display-entry
+          '("COMMIT_EDITMSG"
+            (display-buffer-reuse-window
+             display-buffer-use-some-window)
+            (reusable-frames . visible)
+            (inhibit-same-window . t)))
+    (push knayawp--commit-display-entry display-buffer-alist)))
+
+(defun knayawp--remove-commit-display-entry ()
+  "Remove the COMMIT_EDITMSG `display-buffer-alist' entry.
+Inverse of `knayawp--install-commit-display-entry'.  Idempotent."
+  (when knayawp--commit-display-entry
+    (setq display-buffer-alist
+          (delq knayawp--commit-display-entry display-buffer-alist))
+    (setq knayawp--commit-display-entry nil)))
+
+(defun knayawp--reconcile-commit-style ()
+  "Make commit-style state match the resolved value.
+Drop install bits left over from a previous resolved style, then
+install bits for the current one.  Idempotent: safe to call when
+the resolved style has not changed.
+
+Without this, changing `knayawp-magit-commit-style' at runtime
+leaves stale state behind — for example, switching from `zoom' to
+`editor' would keep the `zoom' commit-flow hooks installed.  The
+reconcile invariant is documented in `kb/properties.md' as P10."
+  (let ((style (knayawp--resolve-commit-style)))
+    ;; Remove what no longer applies under the resolved style.
+    (unless (eq style 'editor)
+      (knayawp--remove-commit-display-entry))
+    (unless (eq style 'zoom)
+      (knayawp--remove-commit-hooks))
+    ;; Install what applies under the resolved style.
+    (pcase style
+      ('editor (knayawp--install-commit-display-entry))
+      ('zoom   (knayawp--install-commit-hooks))
+      ('off    nil))))
+
 (defun knayawp--setup-magit-integration ()
   "Install magit buffer display integration.
 Save the current `magit-display-buffer-function' and replace it
-with `knayawp--magit-display-buffer'.  Depending on the resolved
-value of `knayawp-magit-commit-style', either install the
-COMMIT_EDITMSG `display-buffer-alist' entry (`editor'), install
-the commit-flow hooks (`zoom'), or do neither (`off').  Always
-add the entry that pins `magit-process-mode' buffers to the magit
-side window so long-running git commands do not pop a window in
-the editor pane."
+with `knayawp--magit-display-buffer'.  Reconcile commit-style
+state via `knayawp--reconcile-commit-style' so the hooks and
+`display-buffer-alist' entry match the current resolved value of
+`knayawp-magit-commit-style'.  Always add the entry that pins
+`magit-process-mode' buffers to the magit side window so
+long-running git commands do not pop a window in the editor
+pane."
   (when (require 'magit nil t)
     ;; Guard against double-setup: only save the original function
     ;; if we haven't already installed ours.
@@ -766,20 +825,7 @@ the editor pane."
             magit-display-buffer-function)
       (setq magit-display-buffer-function
             #'knayawp--magit-display-buffer))
-    (let ((style (knayawp--resolve-commit-style)))
-      (pcase style
-        ('editor
-         (unless knayawp--commit-display-entry
-           (setq knayawp--commit-display-entry
-                 '("COMMIT_EDITMSG"
-                   (display-buffer-reuse-window
-                    display-buffer-use-some-window)
-                   (reusable-frames . visible)
-                   (inhibit-same-window . t)))
-           (push knayawp--commit-display-entry display-buffer-alist)))
-        ('zoom
-         (knayawp--install-commit-hooks))
-        ('off nil)))
+    (knayawp--reconcile-commit-style)
     (unless knayawp--process-display-entry
       (let ((slot (knayawp--panel-slot
                    (assq 'magit knayawp-panels))))
@@ -803,10 +849,7 @@ entries, and unregister the commit-flow hooks."
     (setq magit-display-buffer-function
           knayawp--magit-saved-display-fn)
     (setq knayawp--magit-saved-display-fn nil))
-  (when knayawp--commit-display-entry
-    (setq display-buffer-alist
-          (delq knayawp--commit-display-entry display-buffer-alist))
-    (setq knayawp--commit-display-entry nil))
+  (knayawp--remove-commit-display-entry)
   (when knayawp--process-display-entry
     (setq display-buffer-alist
           (delq knayawp--process-display-entry display-buffer-alist))

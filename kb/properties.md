@@ -1,6 +1,6 @@
 ---
 title: knayawp.el Invariants and Properties
-last-updated: 2026-04-27
+last-updated: 2026-06-09
 status: draft
 ---
 
@@ -75,3 +75,15 @@ knayawp does not advise or rebind any with-editor function. It cooperates throug
 **Why:** Running our restore after with-editor's restore (rather than instead of it) avoids touching with-editor internals while still producing the right post-commit layout. The restore is gated on `(eq (window-configuration-frame winconf) (selected-frame))` to avoid cross-frame scrambling.
 
 P5's "no custom restoration code" clause applies to `q`-quit of magit transients within a single side window slot. The commit lifecycle is a distinct multi-buffer flow that legitimately requires knayawp-managed restoration, and the two properties do not conflict.
+
+## P10: Commit-Style State Reconciliation
+
+Whenever the magit integration is installed (`magit-display-buffer-function` is `knayawp--magit-display-buffer`), the set of installed commit-flow hooks and the presence of the `COMMIT_EDITMSG` `display-buffer-alist` entry must match the *currently resolved* value of `knayawp-magit-commit-style`. That is:
+
+- Resolved `'zoom`  → commit-flow hooks installed, COMMIT_EDITMSG entry absent.
+- Resolved `'editor` → COMMIT_EDITMSG entry installed, commit-flow hooks absent.
+- Resolved `'off`   → both absent.
+
+The reconcile is driven by `knayawp--reconcile-commit-style`, which both `knayawp--setup-magit-integration` and the `:set` form of `knayawp-magit-commit-style` call. Setting the option via `customize-set-variable` or `setopt` triggers an immediate reconcile when the integration is active; setting via plain `setq` does not (standard Emacs `defcustom` semantics) and is recovered by the next `knayawp-layout-setup` call, which always reconciles.
+
+**Why:** Without this invariant, switching styles at runtime leaves stale install bits behind — for example, the zoom commit-flow hooks remain installed after a switch to `'editor`, intercepting the next commit and routing COMMIT_EDITMSG into the magit slot instead of the editor pane. The scenario-2 probe in PR #76 caught this defect; the reconcile design replaces the previous install-only setup path.
