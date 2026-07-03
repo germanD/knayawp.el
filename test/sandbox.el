@@ -16,6 +16,10 @@
 ;; 4. Opens a test file in that project
 ;; 5. Binds C-c k to knayawp-command-map
 ;; 6. Shows a help buffer with commands to try
+;; 7. If KNAYAWP_SANDBOX_EXTRA_FILE is set (run-sandbox.sh FILE), opens
+;;    that file too — shown but NOT selected, so the test file stays
+;;    current and C-c k l targets the /tmp sandbox project, not the
+;;    project the extra file happens to live in.
 ;;
 ;; The temp project is cleaned up when Emacs exits.
 ;;
@@ -119,6 +123,17 @@
     (special-mode))
   (display-buffer help-buf '(display-buffer-at-bottom
                              (window-height . 0.35))))
+
+;;;; Optionally open an extra file (e.g. a probe), without selecting it
+
+;; Selecting it would make it the current buffer, and `knayawp-layout-setup'
+;; resolves the project from the current buffer — so a probe file living in
+;; another repo would hijack the layout.  Display it, keep `hello.el' current.
+(let ((extra (getenv "KNAYAWP_SANDBOX_EXTRA_FILE")))
+  (when (and extra (not (string-empty-p extra)))
+    (if (file-readable-p extra)
+        (display-buffer (find-file-noselect extra))
+      (message "sandbox: extra file not readable — %s" extra))))
 
 (message "sandbox ready — C-c k l to set up the layout")
 
