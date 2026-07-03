@@ -204,7 +204,7 @@ Resolved design decisions:
 
 ### v0.1.5 — Quick DevX Wins
 
-*(No issues assigned yet — scope under KB-level discussion)*
+- [ ] One-shot copy/paste bindings for terminal panels (`C-c k SPC` / `w` / `y`) — #77
 
 ---
 

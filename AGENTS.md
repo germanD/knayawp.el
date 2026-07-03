@@ -177,6 +177,10 @@ Force-pushing to any branch is reserved for the human. Agents must not run `git 
 
 Regular pushes are governed by the autonomy rules in `CLAUDE.md`: agents may push commits to remote branches (including `main` for chore work like the `pmo` agent's milestone reconciliation) once the human has authorised it for the task at hand.
 
+### Worktrees
+
+Feature-branch worktrees live under `.claude/worktrees/pr<N>/` (path is `.gitignore`d). Co-locating the worktree with the repo keeps it inside the sandbox's writable scope so background implementer agents can edit, byte-compile, test, and push from it without needing per-command bypass approval. Keep the worktree in place until the PR merges; clean up only after merge or branch abandonment.
+
 ### Issue and PR linking
 
 - Every PR must reference the issues it closes using `Closes #N` or `Fixes #N` in the PR body. This auto-closes the issues on merge.
