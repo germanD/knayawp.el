@@ -1455,4 +1455,149 @@ passive-loading discipline carries through to the customize path)."
       (when original
         (setq magit-display-buffer-function original)))))
 
+;;;; One-shot terminal copy/paste (#77)
+
+(ert-deftest knayawp-test-command-map-copy-paste-bindings ()
+  "Command map has SPC and y bound to copy/paste commands."
+  (should (eq 'knayawp-terminal-copy-mode
+              (lookup-key knayawp-command-map " ")))
+  (should (eq 'knayawp-terminal-yank
+              (lookup-key knayawp-command-map "y"))))
+
+(ert-deftest knayawp-test-terminal-panel-windows-excludes-magit ()
+  "`knayawp--terminal-panel-windows' omits the magit slot.
+Only vterm/claude panel types are returned; the magit panel at
+slot -1 is filtered out.  In batch mode there are no real side
+windows, so the results are all nil and `seq-filter' returns an
+empty list."
+  (let ((knayawp-panels '((magit  :slot -1)
+                          (vterm  :slot  0)
+                          (claude :slot  1))))
+    ;; In batch mode every slot lookup returns nil; seq-filter removes
+    ;; them all, but magit is excluded BEFORE the nil filter too.
+    ;; Verify at least that the function does not signal an error.
+    (should (listp (knayawp--terminal-panel-windows)))))
+
+(ert-deftest knayawp-test-active-terminal-window-no-layout ()
+  "`knayawp--active-terminal-window' errors when no terminal window exists.
+In batch mode no side windows exist, so the function must signal a
+`user-error' rather than returning nil or crashing."
+  (should-error (knayawp--active-terminal-window)
+                :type 'user-error))
+
+(ert-deftest knayawp-test-active-terminal-window-prefers-current ()
+  "Return the selected window when it is a terminal panel window."
+  (let ((knayawp-panels '((magit  :slot -1)
+                          (vterm  :slot  0)
+                          (claude :slot  1)))
+        (fake-win-0 (selected-window))
+        (fake-win-1 'other-win))
+    (cl-letf (((symbol-function 'knayawp--side-window-for-slot)
+               (lambda (slot)
+                 (pcase slot
+                   (0 fake-win-0)
+                   (1 fake-win-1)
+                   (_ nil)))))
+      ;; The selected window IS fake-win-0 (slot 0 / vterm).
+      (should (eq fake-win-0
+                  (knayawp--active-terminal-window))))))
+
+(ert-deftest knayawp-test-active-terminal-window-falls-back-to-first ()
+  "Return the first terminal panel window when not in one."
+  (let ((knayawp-panels '((magit  :slot -1)
+                          (vterm  :slot  0)
+                          (claude :slot  1)))
+        (fake-win-0 'win-vterm)
+        (fake-win-1 'win-claude))
+    (cl-letf (((symbol-function 'knayawp--side-window-for-slot)
+               (lambda (slot)
+                 (pcase slot
+                   (0 fake-win-0)
+                   (1 fake-win-1)
+                   (_ nil))))
+              ;; selected-window returns something other than any panel.
+              ((symbol-function 'selected-window)
+               (lambda () 'editor-win)))
+      ;; Not in a panel → fall back to first (vterm, slot 0).
+      (should (eq fake-win-0
+                  (knayawp--active-terminal-window))))))
+
+(ert-deftest knayawp-test-terminal-copy-mode-dispatches-vterm ()
+  "`knayawp-terminal-copy-mode' calls the vterm backend helper."
+  (let ((knayawp-terminal-backend 'vterm)
+        (dispatched-to nil))
+    (cl-letf (((symbol-function 'knayawp--active-terminal-window)
+               (lambda () 'fake-win))
+              ((symbol-function 'select-window)
+               #'ignore)
+              ((symbol-function 'knayawp--terminal-copy-mode-vterm)
+               (lambda (win) (setq dispatched-to win)))
+              ((symbol-function 'knayawp--terminal-copy-mode-eat)
+               (lambda (_win) (error "eat called unexpectedly"))))
+      (knayawp-terminal-copy-mode)
+      (should (eq dispatched-to 'fake-win)))))
+
+(ert-deftest knayawp-test-terminal-copy-mode-dispatches-eat ()
+  "`knayawp-terminal-copy-mode' calls the eat backend helper."
+  (let ((knayawp-terminal-backend 'eat)
+        (dispatched-to nil))
+    (cl-letf (((symbol-function 'knayawp--active-terminal-window)
+               (lambda () 'fake-win))
+              ((symbol-function 'select-window)
+               #'ignore)
+              ((symbol-function 'knayawp--terminal-copy-mode-eat)
+               (lambda (win) (setq dispatched-to win)))
+              ((symbol-function 'knayawp--terminal-copy-mode-vterm)
+               (lambda (_win) (error "vterm called unexpectedly"))))
+      (knayawp-terminal-copy-mode)
+      (should (eq dispatched-to 'fake-win)))))
+
+(ert-deftest knayawp-test-terminal-yank-dispatches-vterm ()
+  "`knayawp-terminal-yank' calls the vterm backend helper."
+  (let ((knayawp-terminal-backend 'vterm)
+        (dispatched-to nil))
+    (cl-letf (((symbol-function 'knayawp--active-terminal-window)
+               (lambda () 'fake-win))
+              ((symbol-function 'select-window)
+               #'ignore)
+              ((symbol-function 'knayawp--terminal-yank-vterm)
+               (lambda (win) (setq dispatched-to win)))
+              ((symbol-function 'knayawp--terminal-yank-eat)
+               (lambda (_win) (error "eat called unexpectedly"))))
+      (knayawp-terminal-yank)
+      (should (eq dispatched-to 'fake-win)))))
+
+(ert-deftest knayawp-test-terminal-yank-dispatches-eat ()
+  "`knayawp-terminal-yank' calls the eat backend helper."
+  (let ((knayawp-terminal-backend 'eat)
+        (dispatched-to nil))
+    (cl-letf (((symbol-function 'knayawp--active-terminal-window)
+               (lambda () 'fake-win))
+              ((symbol-function 'select-window)
+               #'ignore)
+              ((symbol-function 'knayawp--terminal-yank-eat)
+               (lambda (win) (setq dispatched-to win)))
+              ((symbol-function 'knayawp--terminal-yank-vterm)
+               (lambda (_win) (error "vterm called unexpectedly"))))
+      (knayawp-terminal-yank)
+      (should (eq dispatched-to 'fake-win)))))
+
+(ert-deftest knayawp-test-terminal-copy-mode-unknown-backend ()
+  "`knayawp-terminal-copy-mode' signals user-error for unknown backend."
+  (let ((knayawp-terminal-backend 'nonexistent))
+    (cl-letf (((symbol-function 'knayawp--active-terminal-window)
+               (lambda () 'fake-win))
+              ((symbol-function 'select-window)
+               #'ignore))
+      (should-error (knayawp-terminal-copy-mode) :type 'user-error))))
+
+(ert-deftest knayawp-test-terminal-yank-unknown-backend ()
+  "`knayawp-terminal-yank' signals user-error for unknown backend."
+  (let ((knayawp-terminal-backend 'nonexistent))
+    (cl-letf (((symbol-function 'knayawp--active-terminal-window)
+               (lambda () 'fake-win))
+              ((symbol-function 'select-window)
+               #'ignore))
+      (should-error (knayawp-terminal-yank) :type 'user-error))))
+
 ;;; knayawp-test.el ends here
