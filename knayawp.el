@@ -208,11 +208,23 @@ previous/next panel and S-<left>/S-<right> are reserved for
 previous/next project tab (wired in v0.2).  All numbered and
 letter keys remain bound as a fallback.
 
-Changing this value at runtime does not rebuild the keymap
-automatically; call `knayawp-rebuild-command-map' afterwards."
+Changing this value via \\[customize-option], `setopt', or
+`customize-set-variable' automatically rebuilds the variable
+`knayawp-command-map' in place.  Plain `setq' bypasses the `:set'
+form (standard Emacs behavior); after a `setq', call
+\\[knayawp-rebuild-command-map] to apply the new style."
   :type '(choice (const :tag "Default (1/2/3, n/p)" default)
                  (const :tag "tmux (arrow keys)" tmux)
                  (const :tag "byobu (shift-arrow keys)" byobu))
+  :set (lambda (sym val)
+         (set-default sym val)
+         ;; Rebuild the keymap in place only when the map object
+         ;; already exists.  The `fboundp' guard lets this `:set'
+         ;; form tolerate being called during initial file load,
+         ;; before `knayawp-rebuild-command-map' is defined.
+         (when (and (fboundp 'knayawp-rebuild-command-map)
+                    (boundp 'knayawp-command-map))
+           (knayawp-rebuild-command-map)))
   :group 'knayawp)
 
 (defcustom knayawp-panels
@@ -264,6 +276,12 @@ keys:
   :pre-commit-window Window selected when the commit was initiated;
                      consulted when `knayawp-magit-commit-focus-after'
                      is `previous'.")
+
+(defvar knayawp--editor-window nil
+  "Window selected as the editor pane when the layout was created.
+Captured by `knayawp-layout-setup' so the `editor' commit style
+can route COMMIT_EDITMSG to a specific window rather than to
+whichever non-side window happens to be available.")
 
 (defvar knayawp--magit-saved-display-fn nil
   "Saved value of `magit-display-buffer-function'.")
@@ -850,16 +868,30 @@ Inverse of `knayawp--install-commit-hooks'.  Idempotent."
                  #'knayawp--server-switch-handler)
     (setq knayawp--commit-hooks-installed nil)))
 
+(defun knayawp--commit-editmsg-display-function (buf action)
+  "Display COMMIT_EDITMSG BUF in the recorded editor window.
+When `knayawp--editor-window' is live, use it directly so the
+buffer lands in the same split the user was editing in before
+opening magit.  Fall back to `display-buffer-use-some-window'
+with the original ACTION so the function always succeeds even
+when no layout is active."
+  (if (and (window-live-p knayawp--editor-window)
+           (not (window-parameter knayawp--editor-window 'window-side)))
+      (progn
+        (set-window-buffer knayawp--editor-window buf)
+        knayawp--editor-window)
+    (display-buffer-use-some-window buf action)))
+
 (defun knayawp--install-commit-display-entry ()
   "Install the COMMIT_EDITMSG `display-buffer-alist' entry.
-Idempotent: if the entry is already in place, do nothing."
+Routes COMMIT_EDITMSG to `knayawp--editor-window' when that window
+is live and not a side window, so the commit message always lands
+in the editor pane even when it has been split.  Idempotent: if
+the entry is already in place, do nothing."
   (unless knayawp--commit-display-entry
     (setq knayawp--commit-display-entry
           '("COMMIT_EDITMSG"
-            (display-buffer-reuse-window
-             display-buffer-use-some-window)
-            (reusable-frames . visible)
-            (inhibit-same-window . t)))
+            (knayawp--commit-editmsg-display-function)))
     (push knayawp--commit-display-entry display-buffer-alist)))
 
 (defun knayawp--remove-commit-display-entry ()
@@ -980,8 +1012,10 @@ left and is selected when done."
           (nreverse buffer-alist))
     ;; Install magit integration
     (knayawp--setup-magit-integration)
-    ;; Select the main editor window
+    ;; Select the main editor window and record it for COMMIT_EDITMSG
+    ;; routing so the `editor' commit style can target it precisely.
     (knayawp--select-editor-window)
+    (setq knayawp--editor-window (selected-window))
     ;; Install the frame-resize watcher and seed the recorded width for
     ;; the current frame so the first hook firing is a no-op.
     (add-hook 'window-size-change-functions
@@ -1093,10 +1127,25 @@ Return nil if the selected window is not a side window."
 
 ;;;; Panel navigation commands
 
+(defun knayawp--maybe-refresh-magit (win)
+  "Call `magit-refresh' when WIN displays a live magit-status buffer.
+Called after selecting a panel window so the magit panel always
+reflects current repository state without a manual `g'."
+  (when (window-live-p win)
+    (let ((buf (window-buffer win)))
+      (when (and (buffer-live-p buf)
+                 (with-current-buffer buf
+                   (derived-mode-p 'magit-status-mode))
+                 (fboundp 'magit-refresh))
+        (with-current-buffer buf
+          (magit-refresh))))))
+
 (defun knayawp-select-panel (n)
   "Select the Nth panel (1-indexed).
 Panel 1 is the first entry in `knayawp-panels' (magit by default),
-panel 2 is the second (vterm), panel 3 is the third (claude)."
+panel 2 is the second (vterm), panel 3 is the third (claude).
+When the selected panel shows a `magit-status-mode' buffer, call
+`magit-refresh' to keep the display current."
   (interactive "nPanel number (1-3): ")
   (let* ((idx (1- n))
          (spec (knayawp--panel-spec-at-index idx)))
@@ -1108,7 +1157,8 @@ panel 2 is the second (vterm), panel 3 is the third (claude)."
       (unless win
         (user-error "Panel %d (%s) has no window — run layout-setup first"
                     n (knayawp--panel-type spec)))
-      (select-window win))))
+      (select-window win)
+      (knayawp--maybe-refresh-magit win))))
 
 (defun knayawp-select-editor ()
   "Select the main editor window."
@@ -1344,10 +1394,13 @@ recorded entry from `display-buffer-alist' and clear
 
 ;;;; Global minor mode
 
-(defvar knayawp--saved-project-switch-commands nil
+(defvar knayawp--saved-project-switch-commands :unset
   "Saved value of `project-switch-commands' for restoration.
 Captured by `knayawp--mode-on' before installing the auto-layout
-action and restored by `knayawp--mode-off'.")
+action and restored by `knayawp--mode-off'.  The sentinel value
+`:unset' means mode-on has not yet captured a value; this
+distinguishes \"not saved yet\" from \"saved nil\" so mode-off
+never clobbers a user-set value when mode-on was not called.")
 
 (defun knayawp--mode-on ()
   "Install global hooks and integration for `knayawp-mode'.
@@ -1357,7 +1410,9 @@ automatically sets up the knayawp layout.  The previous value is
 saved for restoration by `knayawp--mode-off'.  Also install the
 `display-buffer-alist' entries that route `*knayawp-TYPE-PROJECT*'
 buffers to their configured side-window slots."
-  (unless (eq project-switch-commands #'knayawp-layout-setup)
+  (when (eq knayawp--saved-project-switch-commands :unset)
+    ;; Only save the pre-mode value once: guard against double
+    ;; mode-on calls overwriting the original saved value.
     (setq knayawp--saved-project-switch-commands
           project-switch-commands))
   (setq project-switch-commands #'knayawp-layout-setup)
@@ -1367,11 +1422,13 @@ buffers to their configured side-window slots."
   "Tear down global hooks and integration for `knayawp-mode'.
 Inverse of `knayawp--mode-on': restore `project-switch-commands'
 to the value saved at mode activation and remove the panel buffer
-`display-buffer-alist' entries."
-  (when (eq project-switch-commands #'knayawp-layout-setup)
+`display-buffer-alist' entries.  When mode-on was never called
+\(`:unset' sentinel), leaves `project-switch-commands' untouched."
+  (when (and (not (eq knayawp--saved-project-switch-commands :unset))
+             (eq project-switch-commands #'knayawp-layout-setup))
     (setq project-switch-commands
           knayawp--saved-project-switch-commands))
-  (setq knayawp--saved-project-switch-commands nil)
+  (setq knayawp--saved-project-switch-commands :unset)
   (knayawp--remove-panel-display-routing))
 
 ;;;###autoload
