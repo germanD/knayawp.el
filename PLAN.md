@@ -201,10 +201,13 @@ Resolved design decisions:
 - [ ] Positive-path ERT for `knayawp-layout-hook` — #66
 - [ ] `:set` callback for `knayawp-keymap-style` to auto-rebuild command map — #67
 - [ ] Alternative layouts for narrow screens (side pane as overlay) — #51
+- [ ] Auto-refresh magit-status when jumping to magit panel — #78
+- [ ] Tighten 'editor' commit-style COMMIT_EDITMSG routing to a specific window — #79
 
 ### v0.1.5 — Quick DevX Wins
 
 - [ ] One-shot copy/paste bindings for terminal panels (`C-c k SPC` / `w` / `y`) — #77
+- [ ] Promote probe harness to first-class integration-test tier — #80
 
 ---
 
