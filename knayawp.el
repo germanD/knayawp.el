@@ -47,8 +47,12 @@
 (defvar vterm-shell)
 (defvar vterm-buffer-name)
 (declare-function vterm-mode "vterm")
+(declare-function vterm-copy-mode "vterm")
+(declare-function vterm-yank "vterm")
 (defvar eat-buffer-name)
 (declare-function eat "eat")
+(declare-function eat-emacs-mode "eat")
+(declare-function eat-send-string "eat")
 (declare-function magit-status-setup-buffer "magit-status")
 (defvar magit-display-buffer-function)
 (declare-function magit-display-buffer-traditional "magit-mode")
@@ -365,6 +369,84 @@ If COMMAND is non-nil, run it instead of the default shell."
           (eat command)
         (eat)))
     (get-buffer name)))
+
+;;;; Terminal copy/paste dispatch
+
+(defun knayawp--terminal-copy-mode-vterm (window)
+  "Enter vterm copy mode in WINDOW."
+  (with-selected-window window
+    (vterm-copy-mode 1)))
+
+(defun knayawp--terminal-copy-mode-eat (window)
+  "Enter eat Emacs mode in WINDOW, allowing text selection."
+  (with-selected-window window
+    (eat-emacs-mode)))
+
+(defun knayawp--terminal-yank-vterm (window)
+  "Yank `kill-ring' head into vterm WINDOW."
+  (with-selected-window window
+    (vterm-yank)))
+
+(defun knayawp--terminal-yank-eat (window)
+  "Yank `kill-ring' head into eat WINDOW."
+  (with-selected-window window
+    (when-let* ((text (current-kill 0 t)))
+      (eat-send-string (get-buffer-process (current-buffer)) text))))
+
+(defun knayawp--terminal-panel-windows ()
+  "Return side windows for terminal panels (vterm and claude).
+Panel types are those that are not `magit' in `knayawp-panels';
+their windows are looked up by slot.  Windows that no longer exist
+are silently omitted."
+  (seq-filter
+   #'identity
+   (mapcar
+    (lambda (spec)
+      (unless (eq (knayawp--panel-type spec) 'magit)
+        (knayawp--side-window-for-slot (knayawp--panel-slot spec))))
+    knayawp-panels)))
+
+(defun knayawp--active-terminal-window ()
+  "Return the most suitable terminal panel window.
+If the currently selected window is a terminal panel, return it.
+Otherwise return the first available terminal panel window.
+Signal `user-error' when no terminal panel window exists."
+  (let ((wins (knayawp--terminal-panel-windows)))
+    (unless wins
+      (user-error "No terminal panel window — run knayawp-layout-setup first"))
+    (or (seq-find (lambda (w) (eq w (selected-window))) wins)
+        (car wins))))
+
+;;;; One-shot terminal copy/paste commands
+
+(defun knayawp-terminal-copy-mode ()
+  "Enter copy/scroll mode in the active terminal panel.
+Selects the panel window and activates the backend's copy mode:
+`vterm-copy-mode' for vterm, `eat-emacs-mode' for eat.  In copy
+mode, standard Emacs motion and region commands work so the user
+can select text and copy it to the kill ring."
+  (interactive)
+  (let ((win (knayawp--active-terminal-window)))
+    (select-window win)
+    (pcase knayawp-terminal-backend
+      ('vterm (knayawp--terminal-copy-mode-vterm win))
+      ('eat  (knayawp--terminal-copy-mode-eat win))
+      (_ (user-error "Unknown terminal backend: %s"
+                     knayawp-terminal-backend)))))
+
+(defun knayawp-terminal-yank ()
+  "Yank the `kill-ring' head into the active terminal panel.
+The panel is selected and the top of the kill ring is sent to the
+terminal process using the backend-appropriate paste command:
+`vterm-yank' for vterm, `eat-send-string' for eat."
+  (interactive)
+  (let ((win (knayawp--active-terminal-window)))
+    (select-window win)
+    (pcase knayawp-terminal-backend
+      ('vterm (knayawp--terminal-yank-vterm win))
+      ('eat  (knayawp--terminal-yank-eat win))
+      (_ (user-error "Unknown terminal backend: %s"
+                     knayawp-terminal-backend)))))
 
 ;;;; Buffer creation helpers
 
@@ -1139,6 +1221,8 @@ key."
   (define-key map "z" #'knayawp-zoom-panel)
   (define-key map "0" #'knayawp-select-editor)
   (define-key map "s" #'knayawp-toggle-panels)
+  (define-key map " " #'knayawp-terminal-copy-mode)
+  (define-key map "y" #'knayawp-terminal-yank)
   map)
 
 (defun knayawp--build-command-map ()
