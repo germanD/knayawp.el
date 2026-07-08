@@ -184,7 +184,7 @@
 (ert-deftest knayawp-test-mode-on-installs-project-switch-action ()
   "Enabling the mode replaces `project-switch-commands'."
   (let ((project-switch-commands 'sentinel-original)
-        (knayawp--saved-project-switch-commands nil))
+        (knayawp--saved-project-switch-commands :unset))
     (unwind-protect
         (progn
           (knayawp--mode-on)
@@ -197,16 +197,16 @@
 (ert-deftest knayawp-test-mode-off-restores-project-switch-action ()
   "Disabling the mode restores the saved `project-switch-commands'."
   (let ((project-switch-commands 'sentinel-original)
-        (knayawp--saved-project-switch-commands nil))
+        (knayawp--saved-project-switch-commands :unset))
     (knayawp--mode-on)
     (knayawp--mode-off)
     (should (eq project-switch-commands 'sentinel-original))
-    (should-not knayawp--saved-project-switch-commands)))
+    (should (eq knayawp--saved-project-switch-commands :unset))))
 
 (ert-deftest knayawp-test-mode-on-double-call-preserves-saved ()
   "Calling `knayawp--mode-on' twice keeps the original saved value."
   (let ((project-switch-commands 'sentinel-original)
-        (knayawp--saved-project-switch-commands nil))
+        (knayawp--saved-project-switch-commands :unset))
     (unwind-protect
         (progn
           (knayawp--mode-on)
@@ -222,10 +222,10 @@
 This guards against clobbering a user value if mode-off is called
 without a matching mode-on."
   (let ((project-switch-commands 'user-value)
-        (knayawp--saved-project-switch-commands nil))
+        (knayawp--saved-project-switch-commands :unset))
     (knayawp--mode-off)
     (should (eq project-switch-commands 'user-value))
-    (should-not knayawp--saved-project-switch-commands)))
+    (should (eq knayawp--saved-project-switch-commands :unset))))
 
 ;;;; Command map
 
@@ -653,7 +653,7 @@ return nil regardless of the buffer name match."
   "Enabling `knayawp-mode' installs panel display entries."
   (let ((display-buffer-alist nil)
         (project-switch-commands 'sentinel-original)
-        (knayawp--saved-project-switch-commands nil)
+        (knayawp--saved-project-switch-commands :unset)
         (knayawp--panel-display-entries nil)
         (knayawp-panels '((magit  :slot -1)
                           (vterm  :slot  0)
@@ -669,7 +669,7 @@ return nil regardless of the buffer name match."
   "Disabling `knayawp-mode' removes panel display entries."
   (let ((display-buffer-alist nil)
         (project-switch-commands 'sentinel-original)
-        (knayawp--saved-project-switch-commands nil)
+        (knayawp--saved-project-switch-commands :unset)
         (knayawp--panel-display-entries nil)
         (knayawp-panels '((magit  :slot -1)
                           (vterm  :slot  0)
@@ -683,7 +683,7 @@ return nil regardless of the buffer name match."
   "Calling `knayawp--mode-on' twice does not duplicate entries."
   (let ((display-buffer-alist nil)
         (project-switch-commands 'sentinel-original)
-        (knayawp--saved-project-switch-commands nil)
+        (knayawp--saved-project-switch-commands :unset)
         (knayawp--panel-display-entries nil)
         (knayawp-panels '((magit  :slot -1)
                           (vterm  :slot  0)
@@ -1599,5 +1599,171 @@ In batch mode no side windows exist, so the function must signal a
               ((symbol-function 'select-window)
                #'ignore))
       (should-error (knayawp-terminal-yank) :type 'user-error))))
+
+;;;; Layout hook positive-path (#66)
+
+(ert-deftest knayawp-test-layout-hook-runs-after-setup ()
+  "Hook fires once after a successful `knayawp-layout-setup'.
+The test stubs out all side-effecting helpers so it runs in
+batch mode without a real frame or project on disk."
+  (let ((counter 0)
+        (knayawp--active-layouts nil)
+        (knayawp--frame-widths nil)
+        (window-sides-slots window-sides-slots))
+    (let ((knayawp-layout-hook
+           (list (lambda () (setq counter (1+ counter))))))
+      (cl-letf (((symbol-function 'knayawp--project-root)
+                 (lambda () "/fake/project/"))
+                ((symbol-function 'knayawp--project-name)
+                 (lambda (_root) "project"))
+                ((symbol-function 'knayawp--create-panel-buffer)
+                 (lambda (_type _root _name)
+                   (get-buffer-create "*knayawp-test-panel*")))
+                ((symbol-function 'display-buffer-in-side-window)
+                 (lambda (_buf _alist) (selected-window)))
+                ((symbol-function 'knayawp--balance-side-windows) #'ignore)
+                ((symbol-function 'knayawp--setup-magit-integration) #'ignore)
+                ((symbol-function 'knayawp--select-editor-window) #'ignore)
+                ((symbol-function 'add-hook) #'ignore))
+        (knayawp-layout-setup)))
+    (should (= 1 counter))))
+
+(ert-deftest knayawp-test-layout-hook-sees-final-state ()
+  "Hook function receives control after setup completes.
+Specifically, the hook must run AFTER the layout is stored in
+`knayawp--active-layouts' (so hook functions can read the layout)
+and AFTER the editor window is selected."
+  (let ((hook-layout nil)
+        (knayawp--active-layouts nil)
+        (knayawp--frame-widths nil)
+        (window-sides-slots window-sides-slots))
+    (cl-letf (((symbol-function 'knayawp--project-root)
+               (lambda () "/fake/project/"))
+              ((symbol-function 'knayawp--project-name)
+               (lambda (_root) "project"))
+              ((symbol-function 'knayawp--create-panel-buffer)
+               (lambda (_type _root _name)
+                 (get-buffer-create "*knayawp-test-panel2*")))
+              ((symbol-function 'display-buffer-in-side-window)
+               (lambda (_buf _alist) (selected-window)))
+              ((symbol-function 'knayawp--balance-side-windows) #'ignore)
+              ((symbol-function 'knayawp--setup-magit-integration) #'ignore)
+              ((symbol-function 'knayawp--select-editor-window) #'ignore)
+              ((symbol-function 'add-hook) #'ignore))
+      (let ((knayawp-layout-hook
+             (list (lambda ()
+                     ;; Capture layout state at hook-run time.
+                     (setq hook-layout
+                           (alist-get "/fake/project/"
+                                      knayawp--active-layouts
+                                      nil nil #'equal))))))
+        (knayawp-layout-setup)))
+    ;; The hook ran after the layout was recorded.
+    (should hook-layout)))
+
+;;;; Mode-off sentinel behavior (#60)
+
+(ert-deftest knayawp-test-mode-off-preserves-unset-sentinel ()
+  "Mode-off resets saved value to `:unset', not nil.
+This ensures a subsequent `mode-on' call still captures the real
+`project-switch-commands' value rather than treating a stale nil
+as the pre-mode value."
+  (let ((project-switch-commands 'some-original)
+        (knayawp--saved-project-switch-commands :unset)
+        (knayawp--panel-display-entries nil))
+    (knayawp--mode-on)
+    (knayawp--mode-off)
+    (should (eq knayawp--saved-project-switch-commands :unset))))
+
+(ert-deftest knayawp-test-mode-off-does-not-clobber-when-unset ()
+  "Mode-off leaves `project-switch-commands' alone when unset.
+When mode-on was never called (`:unset' sentinel intact) but the
+user happens to have `project-switch-commands' set to our
+function, mode-off must not reset it to nil."
+  (let ((project-switch-commands #'knayawp-layout-setup)
+        (knayawp--saved-project-switch-commands :unset)
+        (knayawp--panel-display-entries nil))
+    (knayawp--mode-off)
+    ;; Our function should still be installed — we never saved anything.
+    (should (eq project-switch-commands #'knayawp-layout-setup))))
+
+;;;; Magit-status auto-refresh (#78)
+
+(ert-deftest knayawp-test-maybe-refresh-magit-calls-refresh ()
+  "`knayawp--maybe-refresh-magit' calls `magit-refresh' on status buffer.
+Uses a fake window that holds a buffer derived from
+`magit-status-mode'."
+  (let* ((buf (generate-new-buffer " *knayawp-test-magit-status*"))
+         (refresh-called nil))
+    (unwind-protect
+        (cl-letf (((symbol-function 'window-live-p) (lambda (_w) t))
+                  ((symbol-function 'window-buffer) (lambda (_w) buf))
+                  ((symbol-function 'buffer-live-p) (lambda (_b) t))
+                  ((symbol-function 'derived-mode-p)
+                   (lambda (mode) (eq mode 'magit-status-mode)))
+                  ((symbol-function 'magit-refresh)
+                   (lambda () (setq refresh-called t))))
+          (knayawp--maybe-refresh-magit 'fake-win)
+          (should refresh-called))
+      (when (buffer-live-p buf) (kill-buffer buf)))))
+
+(ert-deftest knayawp-test-maybe-refresh-magit-skips-non-status ()
+  "`knayawp--maybe-refresh-magit' is a no-op for non-status buffers.
+When the window holds a buffer that is not in `magit-status-mode',
+`magit-refresh' must not be called."
+  (let* ((buf (generate-new-buffer " *knayawp-test-other-buf*"))
+         (refresh-called nil))
+    (unwind-protect
+        (cl-letf (((symbol-function 'window-live-p) (lambda (_w) t))
+                  ((symbol-function 'window-buffer) (lambda (_w) buf))
+                  ((symbol-function 'buffer-live-p) (lambda (_b) t))
+                  ((symbol-function 'derived-mode-p)
+                   (lambda (_mode) nil))
+                  ((symbol-function 'magit-refresh)
+                   (lambda () (setq refresh-called t))))
+          (knayawp--maybe-refresh-magit 'fake-win)
+          (should-not refresh-called))
+      (when (buffer-live-p buf) (kill-buffer buf)))))
+
+(ert-deftest knayawp-test-maybe-refresh-magit-skips-dead-window ()
+  "`knayawp--maybe-refresh-magit' is a no-op for a dead window."
+  (let ((refresh-called nil))
+    (cl-letf (((symbol-function 'window-live-p) (lambda (_w) nil))
+              ((symbol-function 'magit-refresh)
+               (lambda () (setq refresh-called t))))
+      (knayawp--maybe-refresh-magit 'dead-win)
+      (should-not refresh-called))))
+
+;;;; Keymap-style :set auto-rebuild (#67)
+
+(ert-deftest knayawp-test-keymap-style-set-rebuilds-map ()
+  "Setting `knayawp-keymap-style' via customize rebuilds the map.
+The `:set' form calls `knayawp-rebuild-command-map' when the map
+object already exists, so arrow bindings appear immediately."
+  (let* ((rebuilds 0)
+         (saved-style (default-value 'knayawp-keymap-style)))
+    (unwind-protect
+        (cl-letf (((symbol-function 'knayawp-rebuild-command-map)
+                   (lambda () (cl-incf rebuilds))))
+          (customize-set-variable 'knayawp-keymap-style 'tmux)
+          (should (= 1 rebuilds))
+          (customize-set-variable 'knayawp-keymap-style 'byobu)
+          (should (= 2 rebuilds))
+          (customize-set-variable 'knayawp-keymap-style 'default)
+          (should (= 3 rebuilds)))
+      (customize-set-variable 'knayawp-keymap-style saved-style))))
+
+(ert-deftest knayawp-test-keymap-style-set-tmux-arrow-bindings ()
+  "Setting style to `tmux' via setopt produces arrow bindings.
+End-to-end: the real `knayawp-rebuild-command-map' is invoked."
+  (let ((saved-style (default-value 'knayawp-keymap-style)))
+    (unwind-protect
+        (progn
+          (customize-set-variable 'knayawp-keymap-style 'tmux)
+          (should (eq 'knayawp-prev-panel
+                      (lookup-key knayawp-command-map (kbd "<up>"))))
+          (should (eq 'knayawp-next-panel
+                      (lookup-key knayawp-command-map (kbd "<down>")))))
+      (customize-set-variable 'knayawp-keymap-style saved-style))))
 
 ;;; knayawp-test.el ends here
