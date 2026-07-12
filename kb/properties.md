@@ -1,6 +1,6 @@
 ---
 title: knayawp.el Invariants and Properties
-last-updated: 2026-06-09
+last-updated: 2026-07-12
 status: draft
 ---
 
@@ -18,6 +18,10 @@ These are correctness constraints that must hold at all times. If code contradic
 - `C-x o` (`other-window`) must not cycle into control pane windows.
 
 **Mechanism:** Side windows with `no-delete-other-windows` and `no-other-window` parameters. No advice on built-in functions.
+
+**`no-other-window` is conditional:** the parameter is only attached when `knayawp-isolate-other-window-flag` is non-nil (the default). When the flag is nil, `C-x o` cycles into the side windows normally. The flag is evaluated at layout-creation time; toggling it has no effect on an already-live layout.
+
+**Right-pane width is restored on frame resize:** when the frame is resized externally (e.g. by the window manager), `knayawp--restore-right-width-on-resize` re-applies `knayawp-right-width` to the side-window column. Intra-frame window resizes (dragging a divider) are not corrected — those represent intentional user adjustments. The right-pane slot heights are equalized to equal thirds after each `knayawp-layout-setup` call.
 
 ## P2: Zero Advice on Built-in Functions
 
@@ -41,10 +45,13 @@ Every tool buffer created by knayawp must be scoped to a project:
 - If a buffer for this project already exists, reuse it — never create duplicates.
 - When a project workspace is closed (v0.2), all its knayawp buffers must be killed.
 
+**Path matching uses `file-equal-p`:** when searching for an existing magit buffer by project root, the implementation compares paths with `file-equal-p` rather than `string=`. This handles bind-mount and symlink paths that resolve to the same directory but differ as strings — without it, a second magit panel would silently be created for the same project accessed via an alternate path.
+
 ## P5: Magit Buffer Containment
 
 When the knayawp layout is active:
 - All `magit-mode`-derived buffers must display in the magit side window (slot -1), not in the editor pane.
+- `magit-process-mode` buffers (long-running git operations such as fetch, push, rebase) are explicitly included in this rule and are routed to the magit side window via a dedicated `display-buffer-alist` entry. Without this, process output would pop open a new window in the editor pane.
 - `COMMIT_EDITMSG` must display in the editor pane (not the control pane).
 - Transient magit buffers (diff, log, revision) replace the current buffer in the magit window. Pressing `q` must restore the previous buffer via the built-in `quit-restore` mechanism — no custom restoration code.
 
@@ -65,6 +72,7 @@ Simply loading (`require`) the package must not activate any functionality. No h
 - If magit is not installed: the magit panel shows an informational buffer, not an error.
 - If the selected terminal backend is not installed: signal a `user-error` with a clear message naming the missing package.
 - If the frame is too narrow for the layout: skip the control pane and message the user.
+  **Status: not yet implemented.** The narrow-frame guard is tracked as v0.1.4 work (PLAN.md #30). Until then, `knayawp-layout-setup` proceeds regardless of frame width.
 
 ## P9: with-editor Cooperation via Self-Managed Winconf
 
@@ -85,5 +93,7 @@ Whenever the magit integration is installed (`magit-display-buffer-function` is 
 - Resolved `'off`   → both absent.
 
 The reconcile is driven by `knayawp--reconcile-commit-style`, which both `knayawp--setup-magit-integration` and the `:set` form of `knayawp-magit-commit-style` call. Setting the option via `customize-set-variable` or `setopt` triggers an immediate reconcile when the integration is active; setting via plain `setq` does not (standard Emacs `defcustom` semantics) and is recovered by the next `knayawp-layout-setup` call, which always reconciles.
+
+**Operational walkthrough:** suppose the user switches from `'zoom` to `'editor` mid-session via `M-x customize-option RET knayawp-magit-commit-style RET`. The `:set` form fires, detects that the magit integration is live (`magit-display-buffer-function` is `knayawp--magit-display-buffer`), and calls `knayawp--reconcile-commit-style`. That function removes the `git-commit-setup-hook` and `with-editor-post-{finish,cancel}-hook` entries installed for `'zoom` and instead installs the `COMMIT_EDITMSG` `display-buffer-alist` entry for `'editor`. The next commit session runs under `'editor` without any restart. A bare `(setq knayawp-magit-commit-style 'editor)` skips the `:set` form and leaves the old hooks in place; the new value is applied on the next `knayawp-layout-setup` call.
 
 **Why:** Without this invariant, switching styles at runtime leaves stale install bits behind — for example, the zoom commit-flow hooks remain installed after a switch to `'editor`, intercepting the next commit and routing COMMIT_EDITMSG into the magit slot instead of the editor pane. The scenario-2 probe in PR #76 caught this defect; the reconcile design replaces the previous install-only setup path.
