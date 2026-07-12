@@ -22,11 +22,12 @@ emacs -batch -l knayawp.el --eval '(checkdoc-file "knayawp.el")'
 ## Architecture
 
 See `kb/spec.md` for the full product specification and `kb/properties.md` for invariants.
+The rationale behind key design choices lives in `kb/decisions/` (Architecture Decision Records).
 
 Key architectural decisions:
-- **Side windows** for the control pane (not regular split windows)
-- **Terminal backend abstraction** — all terminal code behind `knayawp--make-terminal`
-- **Custom `magit-display-buffer-function`** — uses magit's official hook, not advice
+- **Side windows** for the control pane (not regular split windows) — see ADR-001
+- **Terminal backend abstraction** — all terminal code behind `knayawp--make-terminal` — see ADR-003
+- **Custom `magit-display-buffer-function`** — uses magit's official hook, not advice — see ADR-002
 - **`tab-bar-mode`** for project workspaces (v0.2)
 
 ## Emacs Lisp Coding Conventions
@@ -288,7 +289,7 @@ Before considering any task done:
 
 ### pmo
 
-**When to use:** Project administration — milestone close, new-issue PLAN.md sync, release prep.
+**When to use:** Project administration — milestone close, new-issue PLAN.md sync, release prep, KB health checks.
 
 - Owns the [PLAN.md ↔ milestone invariant](#planmd--milestone-invariant). At milestone close, walk the milestone, tick the corresponding boxes in `PLAN.md`, and verify both directions match.
 - When a new issue is filed against an open milestone, append a matching `- [ ]` line to that milestone's section in `PLAN.md` and commit it alongside whatever motivated the issue.
@@ -296,5 +297,19 @@ Before considering any task done:
 - Move enhancement leftovers from a closing milestone to the next open milestone rather than leaving them orphaned.
 - Verifies labels at PR creation time: inherit area labels from closed issues; apply area + type labels for untracked work. Retroactively corrects any unlabeled open PRs encountered.
 - Runs the [PR reviewer self-review checklist](#pr-reviewers) before any PR is merged: `Closes #N` link, label, test plan present and evidenced. Blocks the merge and raises the gap if any item fails.
+- **At milestone close and release prep**, spawns `kb-librarian` to run a gap audit. High-severity gaps block the milestone close until resolved or explicitly deferred. Medium/low gaps are tracked as new issues.
 - All GitHub state changes go through `gh`. Never poke `.git/` for issue/milestone state.
-- Does not write `.el` code. If implementation work is required to complete an admin task, surface it and hand off.
+- Does not write `.el` code or KB files directly. KB work is delegated to `kb-librarian`; implementation work is raised and handed off.
+
+### kb-librarian
+
+**When to use:** KB maintenance — gap audits, spec/properties updates when features land, authoring ADRs in `kb/decisions/`, keeping `kb/index.md` current.
+
+- Reads all KB files and `knayawp.el` to identify gaps (KB missing, code missing, drift, stale, ambiguous).
+- Updates `kb/spec.md` when features land without KB coverage.
+- Updates `kb/properties.md` when invariants are refined (never weakens an existing property without explicit user approval).
+- Authors new ADRs in `kb/decisions/` for non-obvious design choices.
+- Keeps `kb/index.md` current as files are added or renamed.
+- Does NOT edit `.el` files, tests, or `PLAN.md`. If a gap requires code changes, reports it and stops.
+- Does NOT file GitHub issues directly — hands that to `pmo`.
+- Invoked by `pmo` at milestone close and release prep. Also user-invocable via `/kb-audit`.
