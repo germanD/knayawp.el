@@ -372,22 +372,22 @@ If COMMAND is non-nil, run it instead of the default shell."
 
 ;;;; Terminal copy/paste dispatch
 
-(defun knayawp--terminal-copy-mode-vterm (window)
+(defun knayawp--make-terminal-copy-mode-vterm (window)
   "Enter vterm copy mode in WINDOW."
   (with-selected-window window
     (vterm-copy-mode 1)))
 
-(defun knayawp--terminal-copy-mode-eat (window)
+(defun knayawp--make-terminal-copy-mode-eat (window)
   "Enter eat Emacs mode in WINDOW, allowing text selection."
   (with-selected-window window
     (eat-emacs-mode)))
 
-(defun knayawp--terminal-yank-vterm (window)
+(defun knayawp--make-terminal-yank-vterm (window)
   "Yank `kill-ring' head into vterm WINDOW."
   (with-selected-window window
     (vterm-yank)))
 
-(defun knayawp--terminal-yank-eat (window)
+(defun knayawp--make-terminal-yank-eat (window)
   "Yank `kill-ring' head into eat WINDOW."
   (with-selected-window window
     (when-let* ((text (current-kill 0 t)))
@@ -429,8 +429,8 @@ can select text and copy it to the kill ring."
   (let ((win (knayawp--active-terminal-window)))
     (select-window win)
     (pcase knayawp-terminal-backend
-      ('vterm (knayawp--terminal-copy-mode-vterm win))
-      ('eat  (knayawp--terminal-copy-mode-eat win))
+      ('vterm (knayawp--make-terminal-copy-mode-vterm win))
+      ('eat  (knayawp--make-terminal-copy-mode-eat win))
       (_ (user-error "Unknown terminal backend: %s"
                      knayawp-terminal-backend)))))
 
@@ -443,8 +443,8 @@ terminal process using the backend-appropriate paste command:
   (let ((win (knayawp--active-terminal-window)))
     (select-window win)
     (pcase knayawp-terminal-backend
-      ('vterm (knayawp--terminal-yank-vterm win))
-      ('eat  (knayawp--terminal-yank-eat win))
+      ('vterm (knayawp--make-terminal-yank-vterm win))
+      ('eat  (knayawp--make-terminal-yank-eat win))
       (_ (user-error "Unknown terminal backend: %s"
                      knayawp-terminal-backend)))))
 
