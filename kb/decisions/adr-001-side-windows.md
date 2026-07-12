@@ -46,6 +46,11 @@ vertically. Slot ordering is declarative via `knayawp-panels`.
 - `window-toggle-side-windows` provides free hide/show at no implementation cost.
 - `preserve-size` locks the right-column width after initial sizing.
 - Side windows survive `C-x 1` by design — no custom logic required.
+- `window-sides-slots` is set to `(nil nil nil 3)` at layout-setup time (global to the frame)
+  so Emacs allows three right-side slots. This is intentional: the variable has no per-frame
+  version in Emacs 29. The consequence is that other packages using right side windows on the
+  same frame will also be subject to the 3-slot limit — an acceptable trade-off for a package
+  that owns the right column.
 
 **Trade-off:**
 - Side windows cannot be split by the user; any attempt inside the control pane is

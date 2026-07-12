@@ -1,6 +1,6 @@
 ---
 title: knayawp.el Forward-Looking Ideas
-last-updated: 2026-05-12
+last-updated: 2026-07-12
 status: incubator
 ---
 

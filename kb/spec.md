@@ -63,6 +63,7 @@ All three styles bind the same command surface; they differ only in the suppleme
 **Magit integration:**
 - Magit transient buffers (diff, log, revision) open within the magit panel, replacing status temporarily
 - Pressing `q` restores the previous magit buffer (built-in `quit-restore`)
+- `magit-process-mode` buffers (fetch, push, rebase, and other long-running git operations) are routed to the magit panel, not the editor pane.
 - COMMIT_EDITMSG opens in the editor pane (commits are editing tasks)
 
 **Commit flow:**
@@ -85,6 +86,10 @@ focus lands once a `zoom`-style commit finishes or is canceled:
 - `previous`: restore the window that was focused before the commit was initiated.
 
 This option has no effect when `knayawp-magit-commit-style` is `editor` or `off`.
+
+**Interaction with manual zoom:** If the user has manually zoomed a panel (via `knayawp-zoom-panel`) before initiating a commit, the commit-zoom step is skipped — the existing zoom stays in place. On commit finish or cancel, the pre-commit zoom state is restored (nil or the zoomed-panel symbol), so a second commit in the same session can zoom normally.
+
+**Migration from `knayawp-magit-commit-in-editor-flag`:** This variable is deprecated since v0.1.4. If it is still set in user config and `knayawp-magit-commit-style` is at its default `'zoom`, the old flag is honored with a one-time warning (`t` → `'editor`, `nil` → `'off`). If both are customized, `knayawp-magit-commit-style` wins. Migrate by removing the old flag and setting `knayawp-magit-commit-style` explicitly.
 
 **Terminal backend:**
 - Pluggable: vterm (default) or eat, selected via customization variable
@@ -127,10 +132,12 @@ the mode is disabled.
 **Panel buffer routing** — when `knayawp-mode` is active, `display-buffer-alist` entries
 are installed for each panel type. Any buffer whose name matches `*knayawp-TYPE-PROJECTNAME*`
 is automatically routed to the corresponding side-window slot, provided a knayawp side window
-for that slot already exists in the selected frame. This keeps panel buffers created by
-external commands (e.g. a magit popup, a second Claude session) inside the control pane
-rather than opening in the editor pane. The routing entries are removed cleanly when
-`knayawp-mode` is disabled.
+for that slot already exists in the selected frame. (Magit buffers are an exception: they use
+`magit-display-buffer-function` for routing, installed by `knayawp-layout-setup` separately
+from `knayawp-mode`. The `display-buffer-alist` entries here cover non-magit panel types such
+as vterm and claude.) This keeps panel buffers created by external commands (e.g. a second
+Claude session) inside the control pane rather than opening in the editor pane. The routing
+entries are removed cleanly when `knayawp-mode` is disabled.
 
 ### Feature 2: Project Navigation Bar (v0.2)
 
