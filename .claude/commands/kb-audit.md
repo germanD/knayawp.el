@@ -1,14 +1,5 @@
 ---
-name: kb-audit
-description: Audit the knayawp.el KB for gaps against the current implementation. Reports KB-missing, code-missing, drift, stale, and ambiguous entries. Optionally apply fixes or limit scope to ADR coverage.
-user-invocable: true
-allowed-tools:
-  - Read
-  - Edit
-  - Write
-  - Bash(find kb -type f)
-  - Bash(git log --oneline -20)
-  - Agent
+description: Audit the knayawp.el KB for gaps against the current implementation. Reports KB-missing, code-missing, drift, stale, and ambiguous entries. Pass --fix to apply fixes, --adrs for ADR coverage only.
 ---
 
 # /kb-audit — KB Gap Audit
@@ -27,7 +18,7 @@ Run a full gap audit. Do not edit any KB file.
 
 1. Read `kb/index.md` to orient to current structure.
 2. Read all KB files: `kb/spec.md`, `kb/properties.md`, `kb/ideas.md`,
-   all `kb/decisions/adr-*.md`.
+   and all `kb/decisions/adr-*.md`.
 3. Read `knayawp.el` in full.
 4. For each gap found, classify as one of:
    - **KB missing** — feature/behaviour in code, absent from KB.
@@ -36,7 +27,7 @@ Run a full gap audit. Do not edit any KB file.
    - **KB stale** — KB entry superseded by a later decision.
    - **KB ambiguous** — vague enough that two implementations could diverge.
 5. Report as a structured list: classification | KB file/section | description |
-   suggested fix. Include a severity table at the end (High / Medium / Low).
+   suggested fix. Include a severity summary at the end.
 6. Do not apply any fixes.
 
 ### `--fix`
@@ -50,21 +41,20 @@ Run the gap audit as above, then apply all high-confidence fixes:
 Present **drift** and **code missing** items to the user before editing — these
 require a judgment call about which side is correct.
 
-Use the `kb-librarian` agent to execute the fixes so the KB discipline rules in
-that agent's instructions are applied consistently.
+Use the `kb-librarian` agent to execute the fixes so KB discipline rules are
+applied consistently.
 
 ### `--adrs`
 
 Audit ADR coverage only — do not read the full implementation.
 
-1. Read `kb/decisions/adr-*.md`.
+1. Read all `kb/decisions/adr-*.md`.
 2. Read `kb/properties.md` **Why:** sections and `kb/spec.md` for decision references.
-3. Identify key architectural choices in the code that lack a corresponding ADR.
+3. Identify architectural choices in the code that lack a corresponding ADR.
 4. Report: decision | existing ADR if partial | suggested ADR title.
 
 ## Invariants
 
-- Never edit `properties.md` to weaken a constraint. Flag the gap and stop.
+- Never edit `properties.md` to weaken a constraint — flag it and stop.
 - Never delete ideas from `ideas.md`; mark them promoted or deferred.
-- When in doubt about whether a KB update is correct, surface the question rather
-  than guessing.
+- When in doubt about whether a KB update is correct, surface the question first.
