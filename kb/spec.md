@@ -64,7 +64,7 @@ All three styles bind the same command surface; they differ only in the suppleme
 - Magit transient buffers (diff, log, revision) open within the magit panel, replacing status temporarily
 - Pressing `q` restores the previous magit buffer (built-in `quit-restore`)
 - `magit-process-mode` buffers (fetch, push, rebase, and other long-running git operations) are routed to the magit panel, not the editor pane.
-- COMMIT_EDITMSG opens in the editor pane (commits are editing tasks)
+- `COMMIT_EDITMSG` handling depends on `knayawp-magit-commit-style` — see "Commit flow" below.
 
 **Commit flow:**
 
