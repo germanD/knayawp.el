@@ -1,6 +1,6 @@
 ---
 title: knayawp.el Product Specification
-last-updated: 2026-04-27
+last-updated: 2026-07-12
 status: draft
 ---
 
@@ -21,7 +21,7 @@ Long-term Emacs users (not necessarily "power users") who:
 
 ## Product: Two Features
 
-### Feature 1: Automatic Project Layout (v0.1)
+### Feature 1: Automatic Project Layout (v0.1 – v0.1.3)
 
 **What it does:** A single command transforms the current frame into a two-pane layout:
 - **Left pane** (editor): The active buffer. Standard window commands (`C-x 0/1/2/3`) operate only here.
@@ -49,6 +49,17 @@ Long-term Emacs users (not necessarily "power users") who:
 - Return to editor pane
 - Toggle all panels on/off
 
+**Keymap styles** — `knayawp-keymap-style` selects the key layout used when building `knayawp-command-map`:
+- `default` (historical): numbered keys 1/2/3 and `n`/`p` for next/previous panel.
+- `tmux`: adds `<up>`/`<down>` for previous/next panel on top of the default bindings.
+  `<left>`/`<right>` are reserved for project-tab navigation (v0.2).
+- `byobu`: adds `S-<up>`/`S-<down>` for previous/next panel.
+  `S-<left>`/`S-<right>` reserved for v0.2.
+
+All three styles bind the same command surface; they differ only in the supplementary arrow-key bindings. Changing the style at runtime takes effect after calling `knayawp-rebuild-command-map`.
+
+**`C-x o` isolation** — `knayawp-isolate-other-window-flag` (default `t`) attaches `no-other-window` to each side window so that `C-x o` cycles only among editor-pane windows. Set to `nil` to allow `C-x o` to walk into the side windows. The change takes effect on the next `knayawp-layout-setup` call; existing side windows keep the parameter they were built with.
+
 **Magit integration:**
 - Magit transient buffers (diff, log, revision) open within the magit panel, replacing status temporarily
 - Pressing `q` restores the previous magit buffer (built-in `quit-restore`)
@@ -67,12 +78,59 @@ behavior of routing COMMIT_EDITMSG to the editor pane while the diff
 goes to the magit slot. Setting it to `'off` disables all special
 commit handling.
 
-After a commit completes, focus returns to the editor pane (configurable
-via `knayawp-magit-commit-focus-after`).
+**Focus after commit** — `knayawp-magit-commit-focus-after` (default `editor`) controls where
+focus lands once a `zoom`-style commit finishes or is canceled:
+- `editor`: select the editor pane.
+- `magit`: select the magit side window.
+- `previous`: restore the window that was focused before the commit was initiated.
+
+This option has no effect when `knayawp-magit-commit-style` is `editor` or `off`.
 
 **Terminal backend:**
 - Pluggable: vterm (default) or eat, selected via customization variable
 - All terminal creation goes through a dispatch layer — no direct vterm/eat API calls outside it
+
+**Panel configuration** — `knayawp-panels` is an alist of panel specifications:
+
+```elisp
+'((magit  :slot -1)
+  (vterm  :slot  0)
+  (claude :slot  1))
+```
+
+Each entry is `(TYPE :slot N)` where TYPE is one of `magit`, `vterm`, or `claude` and N is
+the side-window slot (negative = top, zero = middle, positive = bottom). Slot heights are
+equalized after layout creation. Per-panel height ratios are not yet configurable (planned
+for v0.1.4). In v0.1.x, only the three built-in panel types are supported; arbitrary panel
+types and panel rotation are v0.3 work.
+
+**Layout hook** — `knayawp-layout-hook` runs after `knayawp-layout-setup` completes, with all
+panels displayed and the editor window selected. Use it for per-layout customization, for
+example automatically starting a build command in the terminal panel.
+
+**Global mode and project-switch integration** — `knayawp-mode` is a global minor mode
+(disabled by default; loading the package alone never enables it — see P7). When enabled:
+
+- `project-switch-project` automatically runs `knayawp-layout-setup`, so switching to a
+  project creates or revisits the knayawp layout without an explicit command.
+- Panel buffer routing (see below) is installed globally.
+
+Enable it in your init file:
+
+```elisp
+(knayawp-mode 1)
+```
+
+`knayawp-mode` saves the previous value of `project-switch-commands` and restores it when
+the mode is disabled.
+
+**Panel buffer routing** — when `knayawp-mode` is active, `display-buffer-alist` entries
+are installed for each panel type. Any buffer whose name matches `*knayawp-TYPE-PROJECTNAME*`
+is automatically routed to the corresponding side-window slot, provided a knayawp side window
+for that slot already exists in the selected frame. This keeps panel buffers created by
+external commands (e.g. a magit popup, a second Claude session) inside the control pane
+rather than opening in the editor pane. The routing entries are removed cleanly when
+`knayawp-mode` is disabled.
 
 ### Feature 2: Project Navigation Bar (v0.2)
 
