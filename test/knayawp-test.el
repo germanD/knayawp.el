@@ -1766,4 +1766,51 @@ End-to-end: the real `knayawp-rebuild-command-map' is invoked."
                       (lookup-key knayawp-command-map (kbd "<down>")))))
       (customize-set-variable 'knayawp-keymap-style saved-style))))
 
+;;;; COMMIT_EDITMSG frame-locality guard (#79)
+
+(ert-deftest knayawp-test-commit-editmsg-display-routes-same-frame ()
+  "Route COMMIT_EDITMSG to the editor window on the selected frame.
+When `knayawp--editor-window' is live, not a side window, and on
+the selected frame, the buffer is placed there via
+`set-window-buffer' and that window is returned."
+  (let ((knayawp--editor-window 'editor-win)
+        (buf (generate-new-buffer " *knayawp-test-editmsg*"))
+        (set-target nil))
+    (unwind-protect
+        (cl-letf (((symbol-function 'window-live-p) (lambda (_w) t))
+                  ((symbol-function 'window-frame) (lambda (_w) 'frame-a))
+                  ((symbol-function 'selected-frame) (lambda () 'frame-a))
+                  ((symbol-function 'window-parameter) (lambda (_w _p) nil))
+                  ((symbol-function 'set-window-buffer)
+                   (lambda (win _b) (setq set-target win))))
+          (should (eq 'editor-win
+                      (knayawp--commit-editmsg-display-function buf nil)))
+          (should (eq 'editor-win set-target)))
+      (when (buffer-live-p buf) (kill-buffer buf)))))
+
+(ert-deftest knayawp-test-commit-editmsg-display-skips-other-frame ()
+  "Do not hijack the editor window when it lives on another frame.
+`knayawp--editor-window' is a single global; a commit started on
+one frame must not route COMMIT_EDITMSG into the editor window of
+a different frame.  The function falls back to
+`display-buffer-use-some-window' and never calls `set-window-buffer'."
+  (let ((knayawp--editor-window 'editor-win)
+        (buf (generate-new-buffer " *knayawp-test-editmsg2*"))
+        (set-called nil)
+        (fallback-called nil))
+    (unwind-protect
+        (cl-letf (((symbol-function 'window-live-p) (lambda (_w) t))
+                  ((symbol-function 'window-frame) (lambda (_w) 'frame-b))
+                  ((symbol-function 'selected-frame) (lambda () 'frame-a))
+                  ((symbol-function 'window-parameter) (lambda (_w _p) nil))
+                  ((symbol-function 'set-window-buffer)
+                   (lambda (&rest _) (setq set-called t)))
+                  ((symbol-function 'display-buffer-use-some-window)
+                   (lambda (_b _a) (setq fallback-called t) 'some-win)))
+          (should (eq 'some-win
+                      (knayawp--commit-editmsg-display-function buf nil)))
+          (should fallback-called)
+          (should-not set-called))
+      (when (buffer-live-p buf) (kill-buffer buf)))))
+
 ;;; knayawp-test.el ends here

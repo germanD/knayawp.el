@@ -870,12 +870,15 @@ Inverse of `knayawp--install-commit-hooks'.  Idempotent."
 
 (defun knayawp--commit-editmsg-display-function (buf action)
   "Display COMMIT_EDITMSG BUF in the recorded editor window.
-When `knayawp--editor-window' is live, use it directly so the
-buffer lands in the same split the user was editing in before
-opening magit.  Fall back to `display-buffer-use-some-window'
-with the original ACTION so the function always succeeds even
-when no layout is active."
+When `knayawp--editor-window' is live and on the selected frame,
+use it directly so the buffer lands in the same split the user
+was editing in before opening magit.  The frame check keeps a
+commit started on one frame from hijacking another frame's editor
+window, since `knayawp--editor-window' is a single global.  Fall
+back to `display-buffer-use-some-window' with the original ACTION
+so the function always succeeds even when no layout is active."
   (if (and (window-live-p knayawp--editor-window)
+           (eq (window-frame knayawp--editor-window) (selected-frame))
            (not (window-parameter knayawp--editor-window 'window-side)))
       (progn
         (set-window-buffer knayawp--editor-window buf)
