@@ -76,6 +76,16 @@
   :type 'float
   :group 'knayawp)
 
+(defcustom knayawp-min-editor-columns 40
+  "Minimum number of columns required for the editor pane.
+`knayawp-layout-setup' computes the columns consumed by the right
+pane as `round (frame-width * knayawp-right-width)' and checks
+that the remaining columns are at least this value.  When the
+frame is too narrow the side windows are skipped and a warning is
+issued rather than creating an unusably cramped layout."
+  :type 'integer
+  :group 'knayawp)
+
 (defcustom knayawp-claude-command "claude"
   "CLI command for Claude Code."
   :type 'string
@@ -992,54 +1002,76 @@ entries, and unregister the commit-flow hooks."
 
 ;;;; Layout engine
 
+(defun knayawp--frame-wide-enough-p ()
+  "Return non-nil when the frame is wide enough for the layout.
+Computes the editor columns that would remain after the right pane
+takes `knayawp-right-width' and checks they meet
+`knayawp-min-editor-columns'."
+  (let* ((right-cols (round (* (frame-width) knayawp-right-width)))
+         (editor-cols (- (frame-width) right-cols)))
+    (>= editor-cols knayawp-min-editor-columns)))
+
 ;;;###autoload
 (defun knayawp-layout-setup ()
   "Set up the knayawp project layout in the current frame.
 Create three side windows on the right (magit, terminal, Claude
 Code) for the project at point.  The editor pane remains on the
-left and is selected when done."
+left and is selected when done.
+When the frame is too narrow (fewer than `knayawp-min-editor-columns'
+columns remain for the editor after the right pane is allocated),
+skip the side windows and issue a warning instead."
   (interactive)
-  (let* ((project-root (knayawp--project-root))
-         (project-name (knayawp--project-name project-root))
-         (buffer-alist nil))
-    ;; Allow 3 side windows on the right
-    (setq window-sides-slots '(nil nil nil 3))
-    ;; Create and display each panel
-    (dolist (panel-spec knayawp-panels)
-      (let* ((type (knayawp--panel-type panel-spec))
-             (slot (knayawp--panel-slot panel-spec))
-             (buf (knayawp--create-panel-buffer
-                   type project-root project-name)))
-        (when buf
-          (push (cons type buf) buffer-alist)
-          (display-buffer-in-side-window
-           buf
-           `((side . right)
-             (slot . ,slot)
-             (window-width . ,knayawp-right-width)
-             (preserve-size . (t . nil))
-             (window-parameters
-              . ,(knayawp--side-window-parameters)))))))
-    ;; Equalise side window heights
-    (knayawp--balance-side-windows)
-    ;; Record the layout
-    (setf (alist-get project-root knayawp--active-layouts
-                     nil nil #'equal)
-          (nreverse buffer-alist))
-    ;; Install magit integration
-    (knayawp--setup-magit-integration)
-    ;; Select the main editor window and record it for COMMIT_EDITMSG
-    ;; routing so the `editor' commit style can target it precisely.
-    (knayawp--select-editor-window)
-    (setq knayawp--editor-window (selected-window))
-    ;; Install the frame-resize watcher and seed the recorded width for
-    ;; the current frame so the first hook firing is a no-op.
-    (add-hook 'window-size-change-functions
-              #'knayawp--restore-right-width-on-resize)
-    (setf (alist-get (selected-frame) knayawp--frame-widths)
-          (frame-width (selected-frame)))
-    ;; Run user hook last, so functions see the final state
-    (run-hooks 'knayawp-layout-hook)))
+  (if (knayawp--frame-wide-enough-p)
+      (let* ((project-root (knayawp--project-root))
+             (project-name (knayawp--project-name project-root))
+             (buffer-alist nil))
+        ;; Allow 3 side windows on the right
+        (setq window-sides-slots '(nil nil nil 3))
+        ;; Create and display each panel
+        (dolist (panel-spec knayawp-panels)
+          (let* ((type (knayawp--panel-type panel-spec))
+                 (slot (knayawp--panel-slot panel-spec))
+                 (buf (knayawp--create-panel-buffer
+                       type project-root project-name)))
+            (when buf
+              (push (cons type buf) buffer-alist)
+              (display-buffer-in-side-window
+               buf
+               `((side . right)
+                 (slot . ,slot)
+                 (window-width . ,knayawp-right-width)
+                 (preserve-size . (t . nil))
+                 (window-parameters
+                  . ,(knayawp--side-window-parameters)))))))
+        ;; Equalise side window heights
+        (knayawp--balance-side-windows)
+        ;; Record the layout
+        (setf (alist-get project-root knayawp--active-layouts
+                         nil nil #'equal)
+              (nreverse buffer-alist))
+        ;; Install magit integration
+        (knayawp--setup-magit-integration)
+        ;; Select the main editor window and record it for COMMIT_EDITMSG
+        ;; routing so the `editor' commit style can target it precisely.
+        (knayawp--select-editor-window)
+        (setq knayawp--editor-window (selected-window))
+        ;; Install the frame-resize watcher and seed the recorded width
+        ;; for the current frame so the first hook firing is a no-op.
+        (add-hook 'window-size-change-functions
+                  #'knayawp--restore-right-width-on-resize)
+        (setf (alist-get (selected-frame) knayawp--frame-widths)
+              (frame-width (selected-frame)))
+        ;; Run user hook last, so functions see the final state
+        (run-hooks 'knayawp-layout-hook))
+    ;; Narrow-frame guard: warn when the layout would leave the editor
+    ;; pane too cramped to be usable.
+    (message
+     (concat "knayawp: frame too narrow for side windows "
+             "(%d editor cols available, need >= %d); "
+             "skipping layout setup")
+     (- (frame-width)
+        (round (* (frame-width) knayawp-right-width)))
+     knayawp-min-editor-columns)))
 
 (defun knayawp-layout-teardown ()
   "Remove the knayawp control pane from the current frame.
