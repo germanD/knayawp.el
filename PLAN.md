@@ -200,6 +200,7 @@ Resolved design decisions:
 - [ ] Re-install display-buffer-alist routing when knayawp-panels changes — #65
 - [x] Positive-path ERT for `knayawp-layout-hook` — #66
 - [x] `:set` callback for `knayawp-keymap-style` to auto-rebuild command map — #67
+- [ ] Monocle mode full-frame zoom — #85
 - [ ] Alternative layouts for narrow screens (side pane as overlay) — #51
 - [x] Auto-refresh magit-status when jumping to magit panel — #78
 - [x] Tighten 'editor' commit-style COMMIT_EDITMSG routing to a specific window — #79
