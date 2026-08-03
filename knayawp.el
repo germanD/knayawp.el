@@ -241,6 +241,19 @@ configuration is not yet exposed."
                                    :value-type integer))
   :group 'knayawp)
 
+(defcustom knayawp-winner-integration-flag t
+  "Non-nil means save window history via `winner-mode' on teardown.
+When non-nil (the default) and `winner-mode' is active,
+`knayawp-layout-teardown' calls `winner-save-conditionally'
+before deleting the side windows so the layout is added to the
+`winner-mode' ring and `winner-undo' can restore it.
+
+This flag is only consulted when `winner-mode' is actually on;
+it does not activate or load `winner' on its own, preserving the
+passive-loading invariant (property P7)."
+  :type 'boolean
+  :group 'knayawp)
+
 (defcustom knayawp-layout-hook nil
   "Hook run after `knayawp-layout-setup' creates the layout.
 Functions on this hook are called with no arguments, after all
@@ -1031,12 +1044,24 @@ left and is selected when done."
 (defun knayawp-layout-teardown ()
   "Remove the knayawp control pane from the current frame.
 Delete all side windows but do not kill their buffers.  If a
-commit-zoom session was active, discard its state and warn."
+commit-zoom session was active, discard its state and warn.
+When `knayawp-winner-integration-flag' is non-nil and
+`winner-mode' is active, save the current window configuration
+to the `winner-mode' ring before tearing down so `winner-undo'
+can restore the layout."
   (interactive)
   (when (knayawp--commit-flow-active-p)
     (setq knayawp--commit-pre-state nil)
     (message
      "knayawp: layout torn down during active commit; state cleared"))
+  ;; Save to winner ring before deleting side windows, so the full
+  ;; layout (including panels) enters the undo history.  Only when
+  ;; the flag is on AND winner-mode is actually active — no-op
+  ;; otherwise (P7: passive-loading discipline).
+  (when (and knayawp-winner-integration-flag
+             (bound-and-true-p winner-mode)
+             (fboundp 'winner-save-conditionally))
+    (winner-save-conditionally))
   (knayawp--teardown-magit-integration)
   (let ((side-windows (knayawp--side-windows)))
     (dolist (win side-windows)
