@@ -1813,4 +1813,165 @@ a different frame.  The function falls back to
           (should-not set-called))
       (when (buffer-live-p buf) (kill-buffer buf)))))
 
+;;;; winner-mode integration (#32)
+
+(ert-deftest knayawp-test-winner-integration-flag-default ()
+  "`knayawp-winner-integration-flag' defaults to t."
+  (should (eq t (default-value 'knayawp-winner-integration-flag))))
+
+(ert-deftest knayawp-test-teardown-saves-winner-when-active ()
+  "Teardown calls `winner-save-conditionally' when flag and mode are on."
+  (let ((knayawp-winner-integration-flag t)
+        (winner-mode t)
+        (saved nil)
+        (knayawp--commit-pre-state nil)
+        (knayawp--frame-widths nil)
+        (knayawp--magit-saved-display-fn nil)
+        (knayawp--commit-display-entry nil)
+        (knayawp--process-display-entry nil)
+        (knayawp--commit-hooks-installed nil))
+    (cl-letf (((symbol-function 'winner-save-conditionally)
+               (lambda () (setq saved t)))
+              ((symbol-function 'knayawp--teardown-magit-integration)
+               #'ignore)
+              ((symbol-function 'knayawp--side-windows)
+               (lambda () nil)))
+      (knayawp-layout-teardown))
+    (should saved)))
+
+(ert-deftest knayawp-test-teardown-skips-winner-when-flag-off ()
+  "Teardown skips `winner-save-conditionally' when flag is nil."
+  (let ((knayawp-winner-integration-flag nil)
+        (winner-mode t)
+        (saved nil)
+        (knayawp--commit-pre-state nil)
+        (knayawp--frame-widths nil)
+        (knayawp--magit-saved-display-fn nil)
+        (knayawp--commit-display-entry nil)
+        (knayawp--process-display-entry nil)
+        (knayawp--commit-hooks-installed nil))
+    (cl-letf (((symbol-function 'winner-save-conditionally)
+               (lambda () (setq saved t)))
+              ((symbol-function 'knayawp--teardown-magit-integration)
+               #'ignore)
+              ((symbol-function 'knayawp--side-windows)
+               (lambda () nil)))
+      (knayawp-layout-teardown))
+    (should-not saved)))
+
+(ert-deftest knayawp-test-teardown-skips-winner-when-mode-off ()
+  "Teardown skips `winner-save-conditionally' when winner-mode is off."
+  (let ((knayawp-winner-integration-flag t)
+        (winner-mode nil)
+        (saved nil)
+        (knayawp--commit-pre-state nil)
+        (knayawp--frame-widths nil)
+        (knayawp--magit-saved-display-fn nil)
+        (knayawp--commit-display-entry nil)
+        (knayawp--process-display-entry nil)
+        (knayawp--commit-hooks-installed nil))
+    (cl-letf (((symbol-function 'winner-save-conditionally)
+               (lambda () (setq saved t)))
+              ((symbol-function 'knayawp--teardown-magit-integration)
+               #'ignore)
+              ((symbol-function 'knayawp--side-windows)
+               (lambda () nil)))
+      (knayawp-layout-teardown))
+    (should-not saved)))
+
+;;;; Narrow-frame guard (#30)
+
+(ert-deftest knayawp-test-min-editor-columns-default ()
+  "`knayawp-min-editor-columns' defaults to 40."
+  (should (equal 40 (default-value 'knayawp-min-editor-columns))))
+
+(ert-deftest knayawp-test-frame-wide-enough-p-wide-frame ()
+  "`knayawp--frame-wide-enough-p' returns t when frame is wide."
+  (let ((knayawp-right-width 0.4)
+        (knayawp-min-editor-columns 40))
+    (cl-letf (((symbol-function 'frame-width) (lambda () 200)))
+      ;; right-cols = 80, editor-cols = 120 >= 40
+      (should (knayawp--frame-wide-enough-p)))))
+
+(ert-deftest knayawp-test-frame-wide-enough-p-narrow-frame ()
+  "`knayawp--frame-wide-enough-p' returns nil when frame is too narrow."
+  (let ((knayawp-right-width 0.4)
+        (knayawp-min-editor-columns 40))
+    (cl-letf (((symbol-function 'frame-width) (lambda () 60)))
+      ;; right-cols = 24, editor-cols = 36 < 40
+      (should-not (knayawp--frame-wide-enough-p)))))
+
+(ert-deftest knayawp-test-layout-setup-skips-when-narrow ()
+  "`knayawp-layout-setup' skips setup and does not call project-root.
+When the frame is too narrow, the function must not proceed past the
+guard — verifiable by confirming `knayawp--project-root' is never
+called (it would signal an error if reached)."
+  (let ((knayawp-min-editor-columns 400)
+        (project-root-called nil))
+    (cl-letf (((symbol-function 'frame-width) (lambda () 100))
+              ((symbol-function 'knayawp--project-root)
+               (lambda ()
+                 (setq project-root-called t)
+                 (error "should not be reached"))))
+      ;; With min-editor-columns=400 and frame-width=100, even 0 right
+      ;; columns leaves only 100 editor cols, which is < 400.
+      (knayawp-layout-setup)
+      (should-not project-root-called))))
+
+;;;; Configurable slot heights (#56)
+
+(ert-deftest knayawp-test-panel-height-accessor ()
+  "Extract :height from panel spec."
+  (should (equal 0.34
+                 (knayawp--panel-height '(magit :slot -1 :height 0.34))))
+  (should (equal 0.33
+                 (knayawp--panel-height '(vterm :slot 0 :height 0.33))))
+  (should (null (knayawp--panel-height '(magit :slot -1)))))
+
+(ert-deftest knayawp-test-default-panels-have-heights ()
+  "Default panels include :height values that sum to approximately 1.0."
+  (let* ((panels (default-value 'knayawp-panels))
+         (heights (mapcar #'knayawp--panel-height panels))
+         (total (apply #'+ heights)))
+    (should (seq-every-p #'numberp heights))
+    ;; Sum should be within rounding tolerance of 1.0.
+    (should (< (abs (- total 1.0)) 0.01))))
+
+;;;; knayawp-panels :set callback (#65)
+
+(ert-deftest knayawp-test-panels-set-reinstalls-when-mode-on ()
+  "Setting `knayawp-panels' re-installs routing when mode is on."
+  (let ((remove-calls 0)
+        (install-calls 0)
+        (knayawp-mode t)
+        (knayawp--panel-display-entries nil)
+        (display-buffer-alist nil))
+    (cl-letf (((symbol-function 'knayawp--remove-panel-display-routing)
+               (lambda () (cl-incf remove-calls)))
+              ((symbol-function 'knayawp--install-panel-display-routing)
+               (lambda () (cl-incf install-calls))))
+      ;; Invoke the :set callback directly
+      (let ((setter (get 'knayawp-panels 'custom-set)))
+        (when setter
+          (funcall setter 'knayawp-panels
+                   '((magit :slot -1) (vterm :slot 0))))))
+    (should (= 1 remove-calls))
+    (should (= 1 install-calls))))
+
+(ert-deftest knayawp-test-panels-set-noop-when-mode-off ()
+  "Setting `knayawp-panels' does not install routing when mode is off."
+  (let ((remove-calls 0)
+        (install-calls 0)
+        (knayawp-mode nil))
+    (cl-letf (((symbol-function 'knayawp--remove-panel-display-routing)
+               (lambda () (cl-incf remove-calls)))
+              ((symbol-function 'knayawp--install-panel-display-routing)
+               (lambda () (cl-incf install-calls))))
+      (let ((setter (get 'knayawp-panels 'custom-set)))
+        (when setter
+          (funcall setter 'knayawp-panels
+                   '((magit :slot -1) (vterm :slot 0))))))
+    (should (= 0 remove-calls))
+    (should (= 0 install-calls))))
+
 ;;; knayawp-test.el ends here
