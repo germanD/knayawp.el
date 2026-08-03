@@ -238,17 +238,29 @@ form (standard Emacs behavior); after a `setq', call
   :group 'knayawp)
 
 (defcustom knayawp-panels
-  '((magit  :slot -1)
-    (vterm  :slot  0)
-    (claude :slot  1))
+  '((magit  :slot -1 :height 0.34)
+    (vterm  :slot  0 :height 0.33)
+    (claude :slot  1 :height 0.33))
   "Panel specifications for the control pane.
-Each entry is (TYPE . PLIST) where TYPE is a symbol and PLIST
-contains :slot (integer for side window ordering).  Slot heights
-are equalised after layout creation; per-panel height
-configuration is not yet exposed."
+Each entry is (TYPE PLIST...) where TYPE is a symbol and the
+plist may contain:
+
+  :slot    (integer) Side-window slot number for ordering.
+  :height  (float)   Fraction of the right-column height to
+                     allocate to this panel.  Values should sum
+                     to 1.0 across all panels.  Fractions are
+                     applied via `window-height' on initial
+                     window creation; resizing an already-created
+                     window only works before `preserve-size' is
+                     set on it.  Consequently, changing :height
+                     values takes effect only after a full
+                     teardown and re-setup of the layout.
+
+When :height is omitted for a panel, slots are equalised via
+`balance-windows' instead of honoring the per-panel fraction."
   :type '(alist :key-type symbol
                 :value-type (plist :key-type keyword
-                                   :value-type integer))
+                                   :value-type sexp))
   :group 'knayawp)
 
 (defcustom knayawp-winner-integration-flag t
@@ -366,6 +378,10 @@ Format: *knayawp-TYPE-PROJECT-NAME*."
 (defun knayawp--panel-slot (panel-spec)
   "Return the :slot value from PANEL-SPEC."
   (plist-get (cdr panel-spec) :slot))
+
+(defun knayawp--panel-height (panel-spec)
+  "Return the :height value from PANEL-SPEC, or nil if absent."
+  (plist-get (cdr panel-spec) :height))
 
 (defun knayawp--panel-type (panel-spec)
   "Return the type symbol from PANEL-SPEC."
@@ -1031,6 +1047,7 @@ skip the side windows and issue a warning instead."
         (dolist (panel-spec knayawp-panels)
           (let* ((type (knayawp--panel-type panel-spec))
                  (slot (knayawp--panel-slot panel-spec))
+                 (height (knayawp--panel-height panel-spec))
                  (buf (knayawp--create-panel-buffer
                        type project-root project-name)))
             (when buf
@@ -1040,11 +1057,17 @@ skip the side windows and issue a warning instead."
                `((side . right)
                  (slot . ,slot)
                  (window-width . ,knayawp-right-width)
+                 ;; :height is honoured only on initial window creation
+                 ;; (Emacs side-window constraint: window-height has no
+                 ;; effect on an already-existing window).  When the
+                 ;; user omits :height, we equalise via balance-windows.
+                 ,@(when height `((window-height . ,height)))
                  (preserve-size . (t . nil))
                  (window-parameters
                   . ,(knayawp--side-window-parameters)))))))
-        ;; Equalise side window heights
-        (knayawp--balance-side-windows)
+        ;; Apply heights: equalise only when no :height was specified.
+        (unless (seq-some #'knayawp--panel-height knayawp-panels)
+          (knayawp--balance-side-windows))
         ;; Record the layout
         (setf (alist-get project-root knayawp--active-layouts
                          nil nil #'equal)
