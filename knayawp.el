@@ -261,6 +261,20 @@ When :height is omitted for a panel, slots are equalised via
   :type '(alist :key-type symbol
                 :value-type (plist :key-type keyword
                                    :value-type sexp))
+  :set (lambda (sym val)
+         (set-default sym val)
+         ;; Re-install panel routing when the mode is active so the new
+         ;; slot/type configuration is reflected in `display-buffer-alist'
+         ;; immediately.  Guard with fboundp for the load-order edge case
+         ;; where the :set form fires before the rest of the file has been
+         ;; evaluated (P7: passive-loading discipline preserved — the
+         ;; install is gated on the mode already being on, not on the
+         ;; mere act of setting the option).
+         (when (and (bound-and-true-p knayawp-mode)
+                    (fboundp 'knayawp--remove-panel-display-routing)
+                    (fboundp 'knayawp--install-panel-display-routing))
+           (knayawp--remove-panel-display-routing)
+           (knayawp--install-panel-display-routing)))
   :group 'knayawp)
 
 (defcustom knayawp-winner-integration-flag t
