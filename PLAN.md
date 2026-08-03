@@ -195,14 +195,14 @@ Resolved design decisions:
 - [x] Side pane width not preserved after frame resize — #50
 - [ ] Managed transient splits in editor pane for side-pane-triggered visits — #52
 - [x] Commit flow: focus should land on COMMIT_EDITMSG, not diff — #53
-- [ ] `knayawp--mode-off` can clobber user-set `project-switch-commands` — #60
-- [ ] Add `kb/` entry for `knayawp-mode` project-switch integration — #61
+- [x] `knayawp--mode-off` can clobber user-set `project-switch-commands` — #60
+- [x] Add `kb/` entry for `knayawp-mode` project-switch integration — #61
 - [ ] Re-install display-buffer-alist routing when knayawp-panels changes — #65
-- [ ] Positive-path ERT for `knayawp-layout-hook` — #66
-- [ ] `:set` callback for `knayawp-keymap-style` to auto-rebuild command map — #67
+- [x] Positive-path ERT for `knayawp-layout-hook` — #66
+- [x] `:set` callback for `knayawp-keymap-style` to auto-rebuild command map — #67
 - [ ] Alternative layouts for narrow screens (side pane as overlay) — #51
-- [ ] Auto-refresh magit-status when jumping to magit panel — #78
-- [ ] Tighten 'editor' commit-style COMMIT_EDITMSG routing to a specific window — #79
+- [x] Auto-refresh magit-status when jumping to magit panel — #78
+- [x] Tighten 'editor' commit-style COMMIT_EDITMSG routing to a specific window — #79
 
 ### v0.1.5 — Quick DevX Wins
 
