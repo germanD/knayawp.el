@@ -79,7 +79,7 @@
 (defcustom knayawp-min-editor-columns 40
   "Minimum number of columns required for the editor pane.
 `knayawp-layout-setup' computes the columns consumed by the right
-pane as `round (frame-width * knayawp-right-width)' and checks
+pane as round(frame-width * `knayawp-right-width') and checks
 that the remaining columns are at least this value.  When the
 frame is too narrow the side windows are skipped and a warning is
 issued rather than creating an unusably cramped layout."
