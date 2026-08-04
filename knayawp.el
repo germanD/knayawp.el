@@ -148,7 +148,7 @@ values are also no-ops without the layout."
                  (const :tag "Default magit display (no special handling)"
                         off))
   :set (lambda (sym val)
-         (set-default sym val)
+         (custom-set-default sym val)
          ;; Reconcile commit-style state only when the magit
          ;; integration is currently installed; otherwise the new
          ;; value is picked up by the next `knayawp-layout-setup'.
@@ -262,7 +262,7 @@ When :height is omitted for a panel, slots are equalised via
                 :value-type (plist :key-type keyword
                                    :value-type sexp))
   :set (lambda (sym val)
-         (set-default sym val)
+         (custom-set-default sym val)
          ;; Re-install panel routing when the mode is active so the new
          ;; slot/type configuration is reflected in `display-buffer-alist'
          ;; immediately.  Guard with fboundp for the load-order edge case
