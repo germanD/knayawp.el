@@ -1079,8 +1079,8 @@ skip the side windows and issue a warning instead."
                  (preserve-size . (t . nil))
                  (window-parameters
                   . ,(knayawp--side-window-parameters)))))))
-        ;; Apply heights: equalise only when no :height was specified.
-        (unless (seq-some #'knayawp--panel-height knayawp-panels)
+        ;; Apply heights: equalise when any panel omits :height.
+        (unless (seq-every #'knayawp--panel-height knayawp-panels)
           (knayawp--balance-side-windows))
         ;; Record the layout
         (setf (alist-get project-root knayawp--active-layouts
