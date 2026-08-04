@@ -1309,7 +1309,8 @@ a side window."
                  (preserve-size . (t . nil))
                  (window-parameters
                   . ,(knayawp--side-window-parameters)))))))
-        (knayawp--balance-side-windows)
+        (unless (seq-every #'knayawp--panel-height knayawp-panels)
+          (knayawp--balance-side-windows))
         ;; Select the panel that was zoomed
         (let* ((spec (seq-find
                       (lambda (s)
