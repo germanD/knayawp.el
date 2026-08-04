@@ -1080,7 +1080,7 @@ skip the side windows and issue a warning instead."
                  (window-parameters
                   . ,(knayawp--side-window-parameters)))))))
         ;; Apply heights: equalise when any panel omits :height.
-        (unless (seq-every #'knayawp--panel-height knayawp-panels)
+        (unless (seq-every-p #'knayawp--panel-height knayawp-panels)
           (knayawp--balance-side-windows))
         ;; Record the layout
         (setf (alist-get project-root knayawp--active-layouts
@@ -1309,7 +1309,7 @@ a side window."
                  (preserve-size . (t . nil))
                  (window-parameters
                   . ,(knayawp--side-window-parameters)))))))
-        (unless (seq-every #'knayawp--panel-height knayawp-panels)
+        (unless (seq-every-p #'knayawp--panel-height knayawp-panels)
           (knayawp--balance-side-windows))
         ;; Select the panel that was zoomed
         (let* ((spec (seq-find
