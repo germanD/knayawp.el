@@ -215,6 +215,7 @@ Resolved design decisions:
 - [ ] Promote probe harness to first-class integration-test tier — #80
 - [ ] Alternative layouts for narrow screens (side pane as overlay) — #51
 - [ ] Managed transient splits in editor pane for side-pane-triggered visits — #52
+- [ ] nit: bind frame-width once in knayawp--editor-columns to avoid double call — #96
 
 ---
 
