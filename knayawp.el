@@ -308,6 +308,10 @@ Each BUFFER-ALIST maps panel types to their buffers.")
 (defvar knayawp--zoomed-panel nil
   "Panel type symbol currently zoomed, or nil if not zoomed.")
 
+(defvar knayawp--monocle-config nil
+  "Saved window configuration when monocle mode is active.
+Non-nil means monocle mode is on; nil means it is off.")
+
 (defvar knayawp--commit-pre-state nil
   "Plist describing the layout state captured when a commit started.
 Nil when no commit-zoom session is active.  Otherwise a plist with
@@ -1123,6 +1127,9 @@ can restore the layout."
     (setq knayawp--commit-pre-state nil)
     (message
      "knayawp: layout torn down during active commit; state cleared"))
+  ;; Clear monocle state: restoring the saved config would be
+  ;; meaningless once the layout is gone.
+  (setq knayawp--monocle-config nil)
   ;; Save to winner ring before deleting side windows, so the full
   ;; layout (including panels) enters the undo history.  Only when
   ;; the flag is on AND winner-mode is actually active — no-op
@@ -1336,6 +1343,22 @@ a side window."
             (delete-window win)))
         (setq knayawp--zoomed-panel current-type)))))
 
+(defun knayawp-monocle-panel ()
+  "Toggle full-frame monocle mode for the selected window.
+When monocle is off, save the current window configuration and
+expand the selected window to fill the entire frame.  When
+monocle is on, restore the saved configuration.
+Unlike `knayawp-zoom-panel', monocle removes the editor pane too,
+giving the selected panel the full frame."
+  (interactive)
+  (if knayawp--monocle-config
+      (progn
+        (set-window-configuration knayawp--monocle-config)
+        (setq knayawp--monocle-config nil))
+    (setq knayawp--monocle-config (current-window-configuration))
+    (setq knayawp--zoomed-panel nil)
+    (delete-other-windows)))
+
 ;;;; Command map
 
 (defun knayawp--select-panel-1 ()
@@ -1367,6 +1390,7 @@ key."
   (define-key map "n" #'knayawp-next-panel)
   (define-key map "p" #'knayawp-prev-panel)
   (define-key map "z" #'knayawp-zoom-panel)
+  (define-key map "Z" #'knayawp-monocle-panel)
   (define-key map "0" #'knayawp-select-editor)
   (define-key map "s" #'knayawp-toggle-panels)
   (define-key map " " #'knayawp-terminal-copy-mode)

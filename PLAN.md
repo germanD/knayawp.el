@@ -139,6 +139,7 @@ Note: `C-c LETTER` is reserved for users per GNU conventions. The package define
 | `n` | `knayawp-next-panel` | Cycle to next panel |
 | `p` | `knayawp-prev-panel` | Cycle to previous panel |
 | `z` | `knayawp-zoom-panel` | Zoom/unzoom current panel |
+| `Z` | `knayawp-monocle-panel` | Full-frame monocle zoom/restore |
 | `0` | `knayawp-select-editor` | Return to editor pane |
 | `s` | `knayawp-toggle-panels` | Hide/show all side windows |
 
@@ -199,7 +200,7 @@ Resolved design decisions:
 - [x] Re-install display-buffer-alist routing when knayawp-panels changes — #65
 - [x] Positive-path ERT for `knayawp-layout-hook` — #66
 - [x] `:set` callback for `knayawp-keymap-style` to auto-rebuild command map — #67
-- [ ] Monocle mode full-frame zoom — #85
+- [x] Monocle mode full-frame zoom — #85
 - [x] Auto-refresh magit-status when jumping to magit panel — #78
 - [x] Tighten 'editor' commit-style COMMIT_EDITMSG routing to a specific window — #79
 - [ ] bug: knayawp-panels :set callback doesn't refresh magit slot when panel :slot changes — #87
