@@ -1974,4 +1974,72 @@ called (it would signal an error if reached)."
     (should (= 0 remove-calls))
     (should (= 0 install-calls))))
 
+;;;; Monocle mode (#85)
+
+(ert-deftest knayawp-test-monocle-panel-default-nil ()
+  "`knayawp--monocle-config' defaults to nil."
+  (should (null (default-value 'knayawp--monocle-config))))
+
+(ert-deftest knayawp-test-monocle-panel-enters-monocle ()
+  "Entering monocle saves the config and calls `delete-other-windows'.
+When `knayawp--monocle-config' is nil, calling
+`knayawp-monocle-panel' must (a) store the window configuration in
+`knayawp--monocle-config' and (b) call `delete-other-windows'."
+  (let ((knayawp--monocle-config nil)
+        (delete-called nil))
+    (cl-letf (((symbol-function 'current-window-configuration)
+               (lambda () 'fake-config))
+              ((symbol-function 'delete-other-windows)
+               (lambda () (setq delete-called t))))
+      (knayawp-monocle-panel)
+      (should (eq knayawp--monocle-config 'fake-config))
+      (should delete-called))))
+
+(ert-deftest knayawp-test-monocle-panel-exits-monocle ()
+  "Exiting monocle restores the saved config and clears the variable.
+When `knayawp--monocle-config' is non-nil, calling
+`knayawp-monocle-panel' must call `set-window-configuration' with
+the saved value and set `knayawp--monocle-config' to nil."
+  (let ((knayawp--monocle-config 'saved-config)
+        (restored nil))
+    (cl-letf (((symbol-function 'set-window-configuration)
+               (lambda (wc) (setq restored wc))))
+      (knayawp-monocle-panel)
+      (should (eq restored 'saved-config))
+      (should (null knayawp--monocle-config)))))
+
+(ert-deftest knayawp-test-monocle-panel-clears-zoomed-state ()
+  "Entering monocle clears the panel zoom state.
+When `knayawp--zoomed-panel' is non-nil and monocle is off,
+`knayawp-monocle-panel' must set `knayawp--zoomed-panel' to nil."
+  (let ((knayawp--monocle-config nil)
+        (knayawp--zoomed-panel 'vterm))
+    (cl-letf (((symbol-function 'current-window-configuration)
+               (lambda () 'fake-config))
+              ((symbol-function 'delete-other-windows)
+               #'ignore))
+      (knayawp-monocle-panel)
+      (should (null knayawp--zoomed-panel)))))
+
+(ert-deftest knayawp-test-monocle-panel-command-map-binding ()
+  "Command map binds Z to `knayawp-monocle-panel'."
+  (should (eq 'knayawp-monocle-panel
+              (lookup-key knayawp-command-map "Z"))))
+
+(ert-deftest knayawp-test-teardown-clears-monocle-config ()
+  "`knayawp-layout-teardown' clears `knayawp--monocle-config'."
+  (let ((knayawp--monocle-config 'saved-config)
+        (knayawp--commit-pre-state nil)
+        (knayawp--frame-widths nil)
+        (knayawp--magit-saved-display-fn nil)
+        (knayawp--commit-display-entry nil)
+        (knayawp--process-display-entry nil)
+        (knayawp--commit-hooks-installed nil))
+    (cl-letf (((symbol-function 'knayawp--teardown-magit-integration)
+               #'ignore)
+              ((symbol-function 'knayawp--side-windows)
+               (lambda () nil)))
+      (knayawp-layout-teardown))
+    (should (null knayawp--monocle-config))))
+
 ;;; knayawp-test.el ends here
