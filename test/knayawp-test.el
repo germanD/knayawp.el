@@ -1952,9 +1952,9 @@ called (it would signal an error if reached)."
                (lambda () (cl-incf install-calls))))
       ;; Invoke the :set callback directly
       (let ((setter (get 'knayawp-panels 'custom-set)))
-        (when setter
-          (funcall setter 'knayawp-panels
-                   '((magit :slot -1) (vterm :slot 0))))))
+        (should setter)
+        (funcall setter 'knayawp-panels
+                 '((magit :slot -1) (vterm :slot 0))))))
     (should (= 1 remove-calls))
     (should (= 1 install-calls))))
 
@@ -1968,9 +1968,9 @@ called (it would signal an error if reached)."
               ((symbol-function 'knayawp--install-panel-display-routing)
                (lambda () (cl-incf install-calls))))
       (let ((setter (get 'knayawp-panels 'custom-set)))
-        (when setter
-          (funcall setter 'knayawp-panels
-                   '((magit :slot -1) (vterm :slot 0))))))
+        (should setter)
+        (funcall setter 'knayawp-panels
+                 '((magit :slot -1) (vterm :slot 0)))))
     (should (= 0 remove-calls))
     (should (= 0 install-calls))))
 
