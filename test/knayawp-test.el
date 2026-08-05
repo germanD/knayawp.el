@@ -1954,7 +1954,7 @@ called (it would signal an error if reached)."
       (let ((setter (get 'knayawp-panels 'custom-set)))
         (should setter)
         (funcall setter 'knayawp-panels
-                 '((magit :slot -1) (vterm :slot 0))))))
+                 '((magit :slot -1) (vterm :slot 0)))))
     (should (= 1 remove-calls))
     (should (= 1 install-calls))))
 
