@@ -1057,14 +1057,17 @@ entries, and unregister the commit-flow hooks."
 
 ;;;; Layout engine
 
+(defun knayawp--editor-columns ()
+  "Return the number of columns available for the editor pane."
+  (let ((right-cols (round (* (frame-width) knayawp-right-width))))
+    (- (frame-width) right-cols)))
+
 (defun knayawp--frame-wide-enough-p ()
   "Return non-nil when the frame is wide enough for the layout.
 Computes the editor columns that would remain after the right pane
 takes `knayawp-right-width' and checks they meet
 `knayawp-min-editor-columns'."
-  (let* ((right-cols (round (* (frame-width) knayawp-right-width)))
-         (editor-cols (- (frame-width) right-cols)))
-    (>= editor-cols knayawp-min-editor-columns)))
+  (>= (knayawp--editor-columns) knayawp-min-editor-columns))
 
 ;;;###autoload
 (defun knayawp-layout-setup ()
@@ -1127,13 +1130,10 @@ skip the side windows and issue a warning instead."
         (run-hooks 'knayawp-layout-hook))
     ;; Narrow-frame guard: warn when the layout would leave the editor
     ;; pane too cramped to be usable.
-    (message
-     (concat "knayawp: frame too narrow for side windows "
-             "(%d editor cols available, need >= %d); "
-             "skipping layout setup")
-     (- (frame-width)
-        (round (* (frame-width) knayawp-right-width)))
-     knayawp-min-editor-columns)))
+    (message "knayawp: frame too narrow for side windows \
+(%d editor cols available, need >= %d); skipping layout setup"
+             (knayawp--editor-columns)
+             knayawp-min-editor-columns)))
 
 (defun knayawp-layout-teardown ()
   "Remove the knayawp control pane from the current frame.
