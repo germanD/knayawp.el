@@ -211,6 +211,16 @@ Before merging a PR, verify:
 
 The `pmo` agent is responsible for running this checklist at PR creation time. Do not merge a PR that fails any item.
 
+### Review comment follow-up
+
+When a code review finding (inline comment or general review comment) is addressed in a subsequent commit on the same PR, post a reply in that comment thread citing the fixing commit:
+
+> Fixed in <sha> — <one-line description of what changed>.
+
+Use `gh api repos/OWNER/REPO/pulls/comments/COMMENT_ID/replies -f body="Fixed in SHA — description."` for inline comment replies, and `gh api repos/OWNER/REPO/issues/comments/COMMENT_ID/replies` is not valid — for general (issue-level) comments, post a new comment on the PR issue thread via `gh api repos/OWNER/REPO/issues/PR_NUMBER/comments -f body="..."`.
+
+The implementer agent that lands the fix is responsible for posting the reply immediately after the commit that resolves the finding. The pmo agent verifies at pre-merge checklist time that all non-deferred review findings have a reply.
+
 ### Milestone hygiene
 
 - After merging work that completes a milestone, close all implemented issues and close the milestone.
