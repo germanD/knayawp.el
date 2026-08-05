@@ -274,7 +274,16 @@ When :height is omitted for a panel, slots are equalised via
                     (fboundp 'knayawp--remove-panel-display-routing)
                     (fboundp 'knayawp--install-panel-display-routing))
            (knayawp--remove-panel-display-routing)
-           (knayawp--install-panel-display-routing)))
+           (knayawp--install-panel-display-routing))
+         ;; Re-install magit integration so the process-buffer
+         ;; `display-buffer-alist' entry, which captures the magit
+         ;; slot number at setup time, picks up any :slot change.
+         ;; Guard with fboundp for the same load-order reason as above.
+         (when (and (bound-and-true-p knayawp-mode)
+                    (fboundp 'knayawp--teardown-magit-integration)
+                    (fboundp 'knayawp--setup-magit-integration))
+           (knayawp--teardown-magit-integration)
+           (knayawp--setup-magit-integration)))
   :group 'knayawp)
 
 (defcustom knayawp-winner-integration-flag t

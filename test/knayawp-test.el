@@ -2132,4 +2132,48 @@ and set `knayawp--zoomed-panel' to nil."
       (knayawp-layout-teardown))
     (should cleared)))
 
+;;;; knayawp-panels :set refreshes magit integration (#87)
+
+(ert-deftest knayawp-test-panels-set-refreshes-magit-when-mode-on ()
+  "Setting `knayawp-panels' refreshes magit integration when mode is on.
+The process-buffer `display-buffer-alist' entry hard-codes the
+magit slot captured at setup time; when the user changes the
+:slot, a teardown+setup cycle must be triggered so the entry is
+rebuilt with the new slot number."
+  (let ((teardown-calls 0)
+        (setup-calls 0)
+        (knayawp-mode t)
+        (knayawp--panel-display-entries nil)
+        (display-buffer-alist nil))
+    (cl-letf (((symbol-function 'knayawp--remove-panel-display-routing)
+               #'ignore)
+              ((symbol-function 'knayawp--install-panel-display-routing)
+               #'ignore)
+              ((symbol-function 'knayawp--teardown-magit-integration)
+               (lambda () (cl-incf teardown-calls)))
+              ((symbol-function 'knayawp--setup-magit-integration)
+               (lambda () (cl-incf setup-calls))))
+      (let ((setter (get 'knayawp-panels 'custom-set)))
+        (when setter
+          (funcall setter 'knayawp-panels
+                   '((magit :slot -2) (vterm :slot 0))))))
+    (should (= 1 teardown-calls))
+    (should (= 1 setup-calls))))
+
+(ert-deftest knayawp-test-panels-set-no-magit-refresh-when-mode-off ()
+  "Setting `knayawp-panels' does not touch magit integration when mode is off."
+  (let ((teardown-calls 0)
+        (setup-calls 0)
+        (knayawp-mode nil))
+    (cl-letf (((symbol-function 'knayawp--teardown-magit-integration)
+               (lambda () (cl-incf teardown-calls)))
+              ((symbol-function 'knayawp--setup-magit-integration)
+               (lambda () (cl-incf setup-calls))))
+      (let ((setter (get 'knayawp-panels 'custom-set)))
+        (when setter
+          (funcall setter 'knayawp-panels
+                   '((magit :slot -1) (vterm :slot 0))))))
+    (should (= 0 teardown-calls))
+    (should (= 0 setup-calls))))
+
 ;;; knayawp-test.el ends here
