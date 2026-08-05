@@ -1075,12 +1075,20 @@ Code) for the project at point.  The editor pane remains on the
 left and is selected when done.
 When the frame is too narrow (fewer than `knayawp-min-editor-columns'
 columns remain for the editor after the right pane is allocated),
-skip the side windows and issue a warning instead."
+skip the side windows and issue a warning instead.
+If the layout already exists, side-window heights are not
+re-applied; call `knayawp-layout-teardown' first."
   (interactive)
   (if (knayawp--frame-wide-enough-p)
       (let* ((project-root (knayawp--project-root))
              (project-name (knayawp--project-name project-root))
              (buffer-alist nil))
+        ;; Warn when a layout already exists for this project: side-window
+        ;; heights are not re-applied on an existing window (Emacs
+        ;; side-window constraint), so a full teardown is required first.
+        (when (alist-get project-root knayawp--active-layouts nil nil #'equal)
+          (message "knayawp: layout already active — :height changes \
+require knayawp-layout-teardown first"))
         ;; Allow 3 side windows on the right
         (setq window-sides-slots '(nil nil nil 3))
         ;; Create and display each panel
