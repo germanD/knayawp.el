@@ -213,13 +213,28 @@ The `pmo` agent is responsible for running this checklist at PR creation time. D
 
 ### Review comment follow-up
 
-When a code review finding (inline comment or general review comment) is addressed in a subsequent commit on the same PR, post a reply in that comment thread citing the fixing commit:
+When a code review finding (inline comment or general review comment) is addressed in a subsequent commit on the same PR, post **one reply per finding**, in the thread where that finding lives, citing the fixing commit. Do not batch multiple findings into a single combined comment — each finding's thread must receive its own reply.
 
 > Fixed in <sha> — <one-line description of what changed>.
 
-Use `gh api repos/OWNER/REPO/pulls/comments/COMMENT_ID/replies -f body="Fixed in SHA — description."` for inline comment replies, and `gh api repos/OWNER/REPO/issues/comments/COMMENT_ID/replies` is not valid — for general (issue-level) comments, post a new comment on the PR issue thread via `gh api repos/OWNER/REPO/issues/PR_NUMBER/comments -f body="..."`.
+**One reply per finding, in its own thread.** If a fix commit addresses three findings, post three separate replies: one in each finding's thread.
 
-The implementer agent that lands the fix is responsible for posting the reply immediately after the commit that resolves the finding. The pmo agent verifies at pre-merge checklist time that all non-deferred review findings have a reply.
+For inline comment threads, use the inline reply endpoint:
+```
+gh api repos/OWNER/REPO/pulls/comments/COMMENT_ID/replies -X POST -f body="Fixed in SHA — description."
+```
+
+If that returns 404 (known limitation on this repo), fall back to a PR issue-level comment that explicitly cites the original comment ID — still one comment per finding:
+```
+gh api repos/OWNER/REPO/issues/PR_NUMBER/comments -X POST -f body="Fixed in SHA — description. (re: inline comment #discussion_rCOMMENT_ID)"
+```
+
+For general (issue-level) review comments, post a new comment on the PR issue thread:
+```
+gh api repos/OWNER/REPO/issues/PR_NUMBER/comments -X POST -f body="Fixed in SHA — description."
+```
+
+The implementer agent that lands the fix is responsible for posting the per-finding replies immediately after the commit that resolves each finding. The pmo agent verifies at pre-merge checklist time that all non-deferred review findings have an individual reply.
 
 ### Milestone hygiene
 
