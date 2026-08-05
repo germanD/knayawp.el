@@ -187,9 +187,9 @@ Resolved design decisions:
 - No new `kb/` file — the `:slot`/`:height` plist contract, the `window-height`-only-on-creation gotcha, and the `preserve-size` cons-cell semantics all live in the `knayawp-panels` docstring + Commentary.
 - #30 split: bulk-moved here in full; the "missing magit/vterm" half is already covered by the existing graceful-degradation paths, so the remaining work is the narrow-frame guard.
 
-- [ ] winner-mode integration — save/restore via winner before tearing down — #32
-- [ ] Make right-pane slot heights configurable — #56
-- [ ] Handle edge cases: frame too narrow (skip right panels), missing magit/vterm — #30
+- [x] winner-mode integration — save/restore via winner before tearing down — #32
+- [x] Make right-pane slot heights configurable — #56
+- [x] Handle edge cases: frame too narrow (skip right panels), missing magit/vterm — #30
 - [x] Magit transient buffers escape side window containment during commit — #48
 - [x] C-x o cycles into side windows despite no-other-window parameter — #49
 - [x] Side pane width not preserved after frame resize — #50
@@ -197,7 +197,7 @@ Resolved design decisions:
 - [x] Commit flow: focus should land on COMMIT_EDITMSG, not diff — #53
 - [x] `knayawp--mode-off` can clobber user-set `project-switch-commands` — #60
 - [x] Add `kb/` entry for `knayawp-mode` project-switch integration — #61
-- [ ] Re-install display-buffer-alist routing when knayawp-panels changes — #65
+- [x] Re-install display-buffer-alist routing when knayawp-panels changes — #65
 - [x] Positive-path ERT for `knayawp-layout-hook` — #66
 - [x] `:set` callback for `knayawp-keymap-style` to auto-rebuild command map — #67
 - [ ] Monocle mode full-frame zoom — #85
