@@ -1175,7 +1175,11 @@ can restore the layout."
         nil)
   (unless knayawp--frame-widths
     (remove-hook 'window-size-change-functions
-                 #'knayawp--restore-right-width-on-resize)))
+                 #'knayawp--restore-right-width-on-resize))
+  (when-let* ((proj (project-current))
+              (project-root (project-root proj)))
+    (setf (alist-get project-root knayawp--active-layouts nil 'remove #'equal)
+          nil)))
 
 ;;;; Window utilities
 
