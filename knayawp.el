@@ -308,9 +308,11 @@ Each BUFFER-ALIST maps panel types to their buffers.")
 (defvar knayawp--zoomed-panel nil
   "Panel type symbol currently zoomed, or nil if not zoomed.")
 
-(defvar knayawp--monocle-config nil
-  "Saved window configuration when monocle mode is active.
-Non-nil means monocle mode is on; nil means it is off.")
+;;  knayawp--monocle-config is stored as a frame parameter, not a defvar.
+;;  Access it with (frame-parameter nil 'knayawp--monocle-config).
+;;  A non-nil value means monocle is active on this frame.
+;;  The value is a cons (WINDOW-CONFIG . ZOOMED-PANEL) so that the
+;;  prior zoom state is preserved across the monocle toggle.
 
 (defvar knayawp--commit-pre-state nil
   "Plist describing the layout state captured when a commit started.
@@ -1129,7 +1131,7 @@ can restore the layout."
      "knayawp: layout torn down during active commit; state cleared"))
   ;; Clear monocle state: restoring the saved config would be
   ;; meaningless once the layout is gone.
-  (setq knayawp--monocle-config nil)
+  (set-frame-parameter nil 'knayawp--monocle-config nil)
   ;; Save to winner ring before deleting side windows, so the full
   ;; layout (including panels) enters the undo history.  Only when
   ;; the flag is on AND winner-mode is actually active — no-op
@@ -1349,15 +1351,33 @@ When monocle is off, save the current window configuration and
 expand the selected window to fill the entire frame.  When
 monocle is on, restore the saved configuration.
 Unlike `knayawp-zoom-panel', monocle removes the editor pane too,
-giving the selected panel the full frame."
+giving the selected panel the full frame.
+State is stored per-frame via the `knayawp--monocle-config' frame
+parameter so that two frames do not share monocle state."
   (interactive)
-  (if knayawp--monocle-config
-      (progn
-        (set-window-configuration knayawp--monocle-config)
-        (setq knayawp--monocle-config nil))
-    (setq knayawp--monocle-config (current-window-configuration))
-    (setq knayawp--zoomed-panel nil)
-    (delete-other-windows)))
+  (let ((cfg (frame-parameter nil 'knayawp--monocle-config)))
+    (if cfg
+        ;; Exit monocle: restore window config and zoom state.
+        (let ((saved-config (car cfg))
+              (saved-zoom   (cdr cfg)))
+          (set-window-configuration saved-config)
+          (setq knayawp--zoomed-panel saved-zoom)
+          (set-frame-parameter nil 'knayawp--monocle-config nil))
+      ;; Enter monocle: save config + zoom state, then expand window.
+      (set-frame-parameter nil 'knayawp--monocle-config
+                           (cons (current-window-configuration)
+                                 knayawp--zoomed-panel))
+      (setq knayawp--zoomed-panel nil)
+      ;; Use explicit per-window deletion so that side windows with
+      ;; `no-delete-other-windows' and windows in side roles are all
+      ;; removed.  `delete-other-windows' refuses to run from a side
+      ;; window and silently skips windows carrying that parameter.
+      (let ((keep (selected-window)))
+        (dolist (win (window-list nil 'nomini))
+          (unless (eq win keep)
+            (condition-case nil
+                (delete-window win)
+              (error nil))))))))
 
 ;;;; Command map
 
