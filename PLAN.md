@@ -193,7 +193,6 @@ Resolved design decisions:
 - [x] Magit transient buffers escape side window containment during commit — #48
 - [x] C-x o cycles into side windows despite no-other-window parameter — #49
 - [x] Side pane width not preserved after frame resize — #50
-- [ ] Managed transient splits in editor pane for side-pane-triggered visits — #52
 - [x] Commit flow: focus should land on COMMIT_EDITMSG, not diff — #53
 - [x] `knayawp--mode-off` can clobber user-set `project-switch-commands` — #60
 - [x] Add `kb/` entry for `knayawp-mode` project-switch integration — #61
@@ -201,7 +200,6 @@ Resolved design decisions:
 - [x] Positive-path ERT for `knayawp-layout-hook` — #66
 - [x] `:set` callback for `knayawp-keymap-style` to auto-rebuild command map — #67
 - [ ] Monocle mode full-frame zoom — #85
-- [ ] Alternative layouts for narrow screens (side pane as overlay) — #51
 - [x] Auto-refresh magit-status when jumping to magit panel — #78
 - [x] Tighten 'editor' commit-style COMMIT_EDITMSG routing to a specific window — #79
 - [ ] bug: knayawp-panels :set callback doesn't refresh magit slot when panel :slot changes — #87
@@ -215,6 +213,8 @@ Resolved design decisions:
 
 - [ ] One-shot copy/paste bindings for terminal panels (`C-c k SPC` / `w` / `y`) — #77
 - [ ] Promote probe harness to first-class integration-test tier — #80
+- [ ] Alternative layouts for narrow screens (side pane as overlay) — #51
+- [ ] Managed transient splits in editor pane for side-pane-triggered visits — #52
 
 ---
 
