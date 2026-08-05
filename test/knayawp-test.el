@@ -2197,17 +2197,24 @@ data format consumed by `knayawp--panel-slot',
     (should (floatp (knayawp--panel-height (assq 'vterm  panels))))
     (should (floatp (knayawp--panel-height (assq 'claude panels))))))
 
-(ert-deftest knayawp-test-panels-type-integer-slot-validation ()
-  "Panel with non-integer :slot is not accepted silently.
-With the repeat+list widget, :slot is typed as integer, so a float
-value like 1.5 is distinguishable from a valid integer.  This test
-verifies that the accessor still round-trips the value correctly
-for proper integer inputs and does not coerce floats."
+(ert-deftest knayawp-test-panels-slot-accessor-integer-round-trip ()
+  "Panel :slot accessor returns the correct integer for valid specs.
+Covers both the with-:height and without-:height forms, confirming
+that the choice widget's two arities are both handled correctly by
+the runtime plist accessors."
+  ;; With :height present (5-element form).
   (let ((spec '(magit :slot -1 :height 0.34)))
     (should (equal -1 (knayawp--panel-slot spec)))
-    (should (integerp (knayawp--panel-slot spec))))
+    (should (integerp (knayawp--panel-slot spec)))
+    (should (floatp (knayawp--panel-height spec))))
   (let ((spec '(vterm :slot 0 :height 0.33)))
     (should (equal 0 (knayawp--panel-slot spec)))
-    (should (integerp (knayawp--panel-slot spec)))))
+    (should (integerp (knayawp--panel-slot spec)))
+    (should (floatp (knayawp--panel-height spec))))
+  ;; Without :height (3-element form) — :height accessor must return nil.
+  (let ((spec '(claude :slot 1)))
+    (should (equal 1 (knayawp--panel-slot spec)))
+    (should (integerp (knayawp--panel-slot spec)))
+    (should (null (knayawp--panel-height spec)))))
 
 ;;; knayawp-test.el ends here
