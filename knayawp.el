@@ -673,17 +673,15 @@ messaged once)."
      ((and old-customized (not style-customized))
       (unless knayawp--commit-style-shim-warned
         (setq knayawp--commit-style-shim-warned t)
-        (message
-         (concat "knayawp: `knayawp-magit-commit-in-editor-flag' is "
-                 "obsolete; migrate to `knayawp-magit-commit-style'.")))
+        (message "knayawp: `knayawp-magit-commit-in-editor-flag' is \
+obsolete; migrate to `knayawp-magit-commit-style'."))
       (if knayawp-magit-commit-in-editor-flag 'editor 'off))
      ;; Both customized: new wins, note the override.
      ((and old-customized style-customized)
       (unless knayawp--commit-style-shim-warned
         (setq knayawp--commit-style-shim-warned t)
-        (message
-         (concat "knayawp: `knayawp-magit-commit-in-editor-flag' is "
-                 "ignored because `knayawp-magit-commit-style' is set.")))
+        (message "knayawp: `knayawp-magit-commit-in-editor-flag' is \
+ignored because `knayawp-magit-commit-style' is set."))
       knayawp-magit-commit-style)
      ;; Default path.
      (t knayawp-magit-commit-style))))
