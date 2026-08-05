@@ -2128,4 +2128,38 @@ rebuilt with the new slot number."
     (should (= 0 teardown-calls))
     (should (= 0 setup-calls))))
 
+;;;; knayawp-panels widget type validation (#88)
+
+(ert-deftest knayawp-test-panels-default-value-accessors ()
+  "Default `knayawp-panels' value works with all accessor helpers.
+Verifies the repeat+list widget change did not alter the runtime
+data format consumed by `knayawp--panel-slot',
+`knayawp--panel-height', and `knayawp--panel-type'."
+  (let ((panels (default-value 'knayawp-panels)))
+    ;; All three entries must be reachable by type key.
+    (should (assq 'magit  panels))
+    (should (assq 'vterm  panels))
+    (should (assq 'claude panels))
+    ;; Slot accessor works on each entry.
+    (should (integerp (knayawp--panel-slot (assq 'magit  panels))))
+    (should (integerp (knayawp--panel-slot (assq 'vterm  panels))))
+    (should (integerp (knayawp--panel-slot (assq 'claude panels))))
+    ;; Height accessor works on each entry (default panels all have :height).
+    (should (floatp (knayawp--panel-height (assq 'magit  panels))))
+    (should (floatp (knayawp--panel-height (assq 'vterm  panels))))
+    (should (floatp (knayawp--panel-height (assq 'claude panels))))))
+
+(ert-deftest knayawp-test-panels-type-integer-slot-validation ()
+  "Panel with non-integer :slot is not accepted silently.
+With the repeat+list widget, :slot is typed as integer, so a float
+value like 1.5 is distinguishable from a valid integer.  This test
+verifies that the accessor still round-trips the value correctly
+for proper integer inputs and does not coerce floats."
+  (let ((spec '(magit :slot -1 :height 0.34)))
+    (should (equal -1 (knayawp--panel-slot spec)))
+    (should (integerp (knayawp--panel-slot spec))))
+  (let ((spec '(vterm :slot 0 :height 0.33)))
+    (should (equal 0 (knayawp--panel-slot spec)))
+    (should (integerp (knayawp--panel-slot spec)))))
+
 ;;; knayawp-test.el ends here

@@ -258,9 +258,13 @@ plist may contain:
 
 When :height is omitted for a panel, slots are equalised via
 `balance-windows' instead of honoring the per-panel fraction."
-  :type '(alist :key-type symbol
-                :value-type (plist :key-type keyword
-                                   :value-type sexp))
+  :type '(repeat
+          (list :tag "Panel"
+                (symbol  :tag "Type (magit/vterm/claude)")
+                (const   :slot)
+                (integer :tag "Slot")
+                (const   :height)
+                (float   :tag "Height fraction")))
   :set (lambda (sym val)
          (custom-set-default sym val)
          ;; Re-install panel routing when the mode is active so the new
