@@ -209,6 +209,7 @@ Resolved design decisions:
 - [ ] enhancement: warn when knayawp-layout-setup is called with an existing layout (heights won't re-apply) — #90
 - [ ] test: replace (when setter ...) with (should setter) in knayawp-panels :set tests — #91
 - [ ] refactor: replace (message (concat ...) args) with direct format-string in message calls — #92
+- [ ] bug: knayawp-monocle-panel behaves like zoom — editor pane is not removed — #97
 
 ### v0.1.5 — Quick DevX Wins
 
@@ -217,6 +218,7 @@ Resolved design decisions:
 - [ ] Alternative layouts for narrow screens (side pane as overlay) — #51
 - [ ] Managed transient splits in editor pane for side-pane-triggered visits — #52
 - [ ] nit: bind frame-width once in knayawp--editor-columns to avoid double call — #96
+- [ ] enhancement: magit fixup (c f) flow — focus magit-log-select window automatically — #98
 
 ---
 
