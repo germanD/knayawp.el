@@ -1295,55 +1295,86 @@ If in the editor pane, jump to the last panel."
   (window-toggle-side-windows))
 
 (defun knayawp-zoom-panel ()
-  "Zoom the current panel to fill the right column.
-If already zoomed, restore all panels.  Must be called from
-a side window."
+  "Zoom/unzoom the selected side panel, or exit monocle into zoom.
+When monocle is active, exit it and immediately zoom the appropriate
+panel: if the monocle window shows a side panel buffer, that panel
+is zoomed; if it shows an editor buffer, the previously-zoomed panel
+\(saved in the monocle config) is restored to zoom, or the layout is
+simply restored when no prior zoom exists.
+When monocle is not active: if already zoomed, restore all panels;
+otherwise zoom the current side panel.  Must be called from a side
+window when monocle is inactive."
   (interactive)
-  (if knayawp--zoomed-panel
-      ;; Unzoom: restore the full layout
-      (let* ((project-root (knayawp--project-root))
-             (buffer-alist (alist-get project-root
-                                      knayawp--active-layouts
-                                      nil nil #'equal)))
-        (dolist (panel-spec knayawp-panels)
-          (let* ((type (knayawp--panel-type panel-spec))
-                 (slot (knayawp--panel-slot panel-spec))
-                 (buf (alist-get type buffer-alist)))
-            (when (and buf (buffer-live-p buf))
-              (display-buffer-in-side-window
-               buf
-               `((side . right)
-                 (slot . ,slot)
-                 (window-width . ,knayawp-right-width)
-                 (preserve-size . (t . nil))
-                 (window-parameters
-                  . ,(knayawp--side-window-parameters)))))))
-        (unless (seq-every-p #'knayawp--panel-height knayawp-panels)
-          (knayawp--balance-side-windows))
-        ;; Select the panel that was zoomed
-        (let* ((spec (seq-find
-                      (lambda (s)
-                        (eq knayawp--zoomed-panel
-                            (knayawp--panel-type s)))
-                      knayawp-panels))
-               (win (when spec
-                      (knayawp--side-window-for-slot
-                       (knayawp--panel-slot spec)))))
-          (when win (select-window win)))
-        (setq knayawp--zoomed-panel nil))
-    ;; Zoom: delete all other side windows
-    (let ((idx (knayawp--current-panel-index)))
-      (unless idx
-        (user-error "Not in a panel — select a panel first"))
-      (let ((current-slot (window-parameter (selected-window)
-                                            'window-slot))
-            (current-type (knayawp--panel-type
-                           (knayawp--panel-spec-at-index idx))))
-        (dolist (win (knayawp--side-windows))
-          (unless (eq (window-parameter win 'window-slot)
-                      current-slot)
-            (delete-window win)))
-        (setq knayawp--zoomed-panel current-type)))))
+  (let ((mono-cfg (frame-parameter nil 'knayawp--monocle-config)))
+    (if mono-cfg
+        ;; Exit monocle first, then zoom the appropriate panel.
+        (let* ((panel-buf  (window-buffer (selected-window)))
+               (saved-zoom (cdr mono-cfg)))
+          (set-window-configuration (car mono-cfg))
+          (setq knayawp--zoomed-panel saved-zoom)
+          (set-frame-parameter nil 'knayawp--monocle-config nil)
+          (let ((panel-win (get-buffer-window panel-buf)))
+            (if (and panel-win (window-parameter panel-win 'window-side))
+                ;; Monocle buffer is a side panel — zoom it.
+                (progn (select-window panel-win)
+                       (knayawp-zoom-panel))
+              ;; Monocle buffer was editor — zoom the previously-zoomed
+              ;; panel (saved-zoom).  If none, leave the restored layout.
+              (when saved-zoom
+                (let* ((project-root (knayawp--project-root))
+                       (project-name (knayawp--project-name project-root))
+                       (buf-name     (knayawp--buffer-name
+                                      saved-zoom project-name))
+                       (target-win   (get-buffer-window buf-name)))
+                  (when target-win
+                    (select-window target-win)
+                    (knayawp-zoom-panel)))))))
+      ;; Not in monocle — normal zoom/unzoom logic.
+      (if knayawp--zoomed-panel
+          ;; Unzoom: restore the full layout.
+          (let* ((project-root (knayawp--project-root))
+                 (buffer-alist (alist-get project-root
+                                         knayawp--active-layouts
+                                         nil nil #'equal)))
+            (dolist (panel-spec knayawp-panels)
+              (let* ((type (knayawp--panel-type panel-spec))
+                     (slot (knayawp--panel-slot panel-spec))
+                     (buf (alist-get type buffer-alist)))
+                (when (and buf (buffer-live-p buf))
+                  (display-buffer-in-side-window
+                   buf
+                   `((side . right)
+                     (slot . ,slot)
+                     (window-width . ,knayawp-right-width)
+                     (preserve-size . (t . nil))
+                     (window-parameters
+                      . ,(knayawp--side-window-parameters)))))))
+            (unless (seq-every-p #'knayawp--panel-height knayawp-panels)
+              (knayawp--balance-side-windows))
+            ;; Select the panel that was zoomed.
+            (let* ((spec (seq-find
+                          (lambda (s)
+                            (eq knayawp--zoomed-panel
+                                (knayawp--panel-type s)))
+                          knayawp-panels))
+                   (win (when spec
+                          (knayawp--side-window-for-slot
+                           (knayawp--panel-slot spec)))))
+              (when win (select-window win)))
+            (setq knayawp--zoomed-panel nil))
+        ;; Zoom: delete all other side windows.
+        (let ((idx (knayawp--current-panel-index)))
+          (unless idx
+            (user-error "Not in a panel — select a panel first"))
+          (let ((current-slot (window-parameter (selected-window)
+                                               'window-slot))
+                (current-type (knayawp--panel-type
+                               (knayawp--panel-spec-at-index idx))))
+            (dolist (win (knayawp--side-windows))
+              (unless (eq (window-parameter win 'window-slot)
+                          current-slot)
+                (delete-window win)))
+            (setq knayawp--zoomed-panel current-type)))))))
 
 (defun knayawp-monocle-panel ()
   "Toggle full-frame monocle mode for the selected window.
