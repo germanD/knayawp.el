@@ -1364,20 +1364,27 @@ parameter so that two frames do not share monocle state."
           (setq knayawp--zoomed-panel saved-zoom)
           (set-frame-parameter nil 'knayawp--monocle-config nil))
       ;; Enter monocle: save config + zoom state, then expand window.
-      (set-frame-parameter nil 'knayawp--monocle-config
-                           (cons (current-window-configuration)
-                                 knayawp--zoomed-panel))
-      (setq knayawp--zoomed-panel nil)
-      ;; Use explicit per-window deletion so that side windows with
-      ;; `no-delete-other-windows' and windows in side roles are all
-      ;; removed.  `delete-other-windows' refuses to run from a side
-      ;; window and silently skips windows carrying that parameter.
-      (let ((keep (selected-window)))
-        (dolist (win (window-list nil 'nomini))
-          (unless (eq win keep)
-            (condition-case nil
-                (delete-window win)
-              (error nil))))))))
+      (let* ((panel-buf (window-buffer (selected-window)))
+             (editor-win
+              (seq-find (lambda (win)
+                          (not (window-parameter win 'window-side)))
+                        (window-list nil 'nomini))))
+        (set-frame-parameter nil 'knayawp--monocle-config
+                             (cons (current-window-configuration)
+                                   knayawp--zoomed-panel))
+        (setq knayawp--zoomed-panel nil)
+        (if (not editor-win)
+            ;; Called from the editor pane — delete side windows only.
+            (dolist (win (knayawp--side-windows))
+              (delete-window win))
+          ;; Common case: called from a side panel.
+          ;; Redirect the editor window to the panel buffer so there is
+          ;; still a non-side root window; then delete the now-surplus
+          ;; side windows safely.
+          (set-window-buffer editor-win panel-buf)
+          (dolist (win (knayawp--side-windows))
+            (delete-window win))
+          (select-window editor-win))))))
 
 ;;;; Command map
 
