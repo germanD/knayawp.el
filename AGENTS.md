@@ -208,6 +208,9 @@ Before merging a PR, verify:
 - [ ] The PR description includes a test plan with byte-compile, checkdoc, and ERT steps.
 - [ ] The test plan steps were actually executed and their output matches expectations (check the PR body or linked commit for evidence).
 - [ ] No `.el` changes bypass the [Quality Checklist](#quality-checklist) — if they do, block the merge and raise the gap.
+- [ ] For PRs touching interactive window management: a probe in `test/probes/` is present and its `run-probe.sh` output (all scenarios GREEN) is included in the PR body. If absent, the PR body contains an explicit justification.
+
+Interactive window-management behaviour (side-window creation/deletion, zoom, monocle, panel focus, commit flow) cannot be verified by `emacs -batch` ERT tests because batch mode has no real frame geometry. The `-nw` probe harness (`test/run-probe.sh`) fills this gap. A probe that is GREEN is the primary evidence of correctness for these workflows; the ERT suite is a necessary but not sufficient gate.
 
 The `pmo` agent is responsible for running this checklist at PR creation time. Do not merge a PR that fails any item.
 
@@ -263,6 +266,7 @@ Before considering any task done:
 - [ ] No advice on built-in functions (property P2)
 - [ ] No vterm/eat API calls outside `knayawp--make-terminal-*` (property P3)
 - [ ] `require` of the package does not activate anything (property P7)
+- [ ] Any change to interactive window-management behaviour (layout, zoom, monocle, panel focus, commit flow) includes a probe in `test/probes/` exercising the affected scenarios via `test/run-probe.sh`. If no new probe is added, the PR body must explicitly justify why (e.g. "existing `monocle.el` probe covers all affected paths").
 
 ## Agent Roles
 
