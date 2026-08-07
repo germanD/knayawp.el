@@ -1311,24 +1311,20 @@ window when monocle is inactive."
         (let* ((panel-buf  (window-buffer (selected-window)))
                (saved-zoom (cdr mono-cfg)))
           (set-window-configuration (car mono-cfg))
-          (setq knayawp--zoomed-panel saved-zoom)
           (set-frame-parameter nil 'knayawp--monocle-config nil)
           (let ((panel-win (get-buffer-window panel-buf)))
             (if (and panel-win (window-parameter panel-win 'window-side))
-                ;; Monocle buffer is a side panel — zoom it.
-                (progn (select-window panel-win)
+                ;; Monocle buffer is a side panel — zoom it fresh.
+                ;; Clear zoomed-panel first so the recursive call takes the
+                ;; zoom path rather than the unzoom path.
+                (progn (setq knayawp--zoomed-panel nil)
+                       (select-window panel-win)
                        (knayawp-zoom-panel))
-              ;; Monocle buffer was editor — zoom the previously-zoomed
-              ;; panel (saved-zoom).  If none, leave the restored layout.
-              (when saved-zoom
-                (let* ((project-root (knayawp--project-root))
-                       (project-name (knayawp--project-name project-root))
-                       (buf-name     (knayawp--buffer-name
-                                      saved-zoom project-name))
-                       (target-win   (get-buffer-window buf-name)))
-                  (when target-win
-                    (select-window target-win)
-                    (knayawp-zoom-panel)))))))
+              ;; Monocle buffer was editor — restore saved-zoom state.
+              ;; set-window-configuration already restored the pre-monocle
+              ;; layout (which reflects the prior zoom if one existed), so
+              ;; just sync the variable to match and leave the layout as-is.
+              (setq knayawp--zoomed-panel saved-zoom))))
       ;; Not in monocle — normal zoom/unzoom logic.
       (if knayawp--zoomed-panel
           ;; Unzoom: restore the full layout.

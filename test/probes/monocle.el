@@ -2,7 +2,7 @@
 
 ;;; Commentary:
 
-;; Six-scenario probe for `knayawp-monocle-panel'.  Run via the suite
+;; Nine-scenario probe for `knayawp-monocle-panel'.  Run via the suite
 ;; (test/run-probes.sh) or individually:
 ;;   test/run-probe.sh test/probes/monocle.el
 ;;
@@ -23,6 +23,20 @@
 ;; Scenario 6 — Zoom + monocle round-trip: zoom a panel, enter monocle,
 ;;   exit monocle, verify zoom state is restored (2 windows: zoomed panel
 ;;   + editor; +1 sandbox helper = 3).
+;;
+;; Scenario 7 — z from monocle with side-panel window: enter monocle from
+;;   vterm (slot 0), then invoke `knayawp-zoom-panel'; verify monocle is
+;;   gone, zoom is active on vterm, window count is 3 (zoomed + editor +
+;;   sandbox helper).
+;;
+;; Scenario 8 — z from monocle with editor window, prior zoom: zoom magit
+;;   first, enter monocle from editor, then invoke `knayawp-zoom-panel';
+;;   verify monocle is gone, zoom is restored to magit, window count is 3.
+;;
+;; Scenario 9 — z from monocle with editor window, no prior zoom: enter
+;;   monocle from editor (no zoom beforehand), then invoke
+;;   `knayawp-zoom-panel'; verify monocle is gone, zoom is NOT active, and
+;;   the full layout is restored (window count 5).
 ;;
 ;; Note on window counts: `test/sandbox.el' opens a `*knayawp-sandbox*'
 ;; help buffer at the bottom via `display-buffer-at-bottom'.  This helper
@@ -48,6 +62,10 @@
 Must be called with `default-directory' set to the sandbox project."
   (knayawp-mode 1)
   (setq knayawp-magit-commit-style 'off)
+  ;; Reset zoom state so scenarios cannot bleed into each other.
+  ;; `knayawp-layout-setup' does not clear `knayawp--zoomed-panel',
+  ;; so we do it explicitly here before every scenario starts.
+  (setq knayawp--zoomed-panel nil)
   (knayawp-layout-setup)
   (monocle--settle))
 
@@ -289,6 +307,136 @@ Must be called with `default-directory' set to the sandbox project."
     (error (knayawp-probe-abort "s6 failed: %S" e)))
   (monocle--teardown-layout))
 
+;;;; Scenario 7: z from monocle when monocle window is a side panel
+
+(defun monocle--scenario-7 ()
+  "Scenario 7 — z from monocle with side-panel window zooms that panel."
+  (knayawp-probe-section "SCENARIO 7 -- z from monocle with side-panel window")
+  (condition-case e
+      (let ((default-directory (file-name-as-directory sandbox--test-dir)))
+        (monocle--setup-layout)
+        ;; Enter monocle from the vterm side window.
+        (monocle--select-side-slot 0)
+        (let ((vterm-buf (window-buffer (selected-window))))
+          (knayawp-monocle-panel)
+          (monocle--settle)
+          (knayawp-probe-log "  in-monocle windows: %S"
+                             (knayawp-probe-window-summary))
+          ;; Probe A: monocle active, 1 window showing vterm buffer.
+          (knayawp-probe-check "s7a-monocle-config-set" t
+                               (consp (frame-parameter nil
+                                                       'knayawp--monocle-config)))
+          (knayawp-probe-check "s7a-monocle-window-count" 2
+                               (monocle--count-non-sandbox-windows))
+          (knayawp-probe-check "s7a-monocle-shows-vterm" t
+                               (eq (window-buffer (selected-window)) vterm-buf))
+          ;; Invoke zoom-panel while monocle is active.
+          (knayawp-zoom-panel)
+          (monocle--settle)
+          (knayawp-probe-log "  after z windows: %S"
+                             (knayawp-probe-window-summary))
+          ;; Probe B: monocle gone, zoom active on vterm, 2 + sandbox = 3.
+          (knayawp-probe-check "s7b-monocle-config-nil" nil
+                               (frame-parameter nil 'knayawp--monocle-config))
+          (knayawp-probe-check "s7b-zoom-active" t
+                               (not (null knayawp--zoomed-panel)))
+          (knayawp-probe-check "s7b-zoomed-vterm" 'vterm
+                               knayawp--zoomed-panel)
+          (knayawp-probe-check "s7b-window-count" 3
+                               (monocle--count-non-sandbox-windows))
+          (knayawp-probe-check "s7b-side-win-shows-vterm" t
+                               (let ((side-wins (knayawp-probe-side-windows)))
+                                 (and (= 1 (length side-wins))
+                                      (eq (window-buffer (car side-wins))
+                                          vterm-buf))))))
+    (error (knayawp-probe-abort "s7 failed: %S" e)))
+  (monocle--teardown-layout))
+
+;;;; Scenario 8: z from monocle when monocle window is editor, prior zoom
+
+(defun monocle--scenario-8 ()
+  "Scenario 8 — z from monocle with editor window restores prior zoom."
+  (knayawp-probe-section "SCENARIO 8 -- z from monocle with editor, prior zoom")
+  (condition-case e
+      (let ((default-directory (file-name-as-directory sandbox--test-dir)))
+        (monocle--setup-layout)
+        ;; Zoom the magit panel first.
+        (monocle--select-side-slot -1)
+        (knayawp-zoom-panel)
+        (monocle--settle)
+        (knayawp-probe-log "  after zoom windows: %S"
+                           (knayawp-probe-window-summary))
+        ;; Probe A: zoom active on magit, 2 windows + sandbox = 3.
+        (knayawp-probe-check "s8a-zoomed-magit" 'magit
+                             knayawp--zoomed-panel)
+        (knayawp-probe-check "s8a-zoom-window-count" 3
+                             (monocle--count-non-sandbox-windows))
+        ;; Enter monocle from the editor pane.
+        (knayawp-select-editor)
+        (knayawp-monocle-panel)
+        (monocle--settle)
+        (knayawp-probe-log "  in-monocle windows: %S"
+                           (knayawp-probe-window-summary))
+        ;; Probe B: monocle active, 1 window + sandbox = 2, shows editor buf.
+        (knayawp-probe-check "s8b-monocle-config-set" t
+                             (consp (frame-parameter nil
+                                                     'knayawp--monocle-config)))
+        (knayawp-probe-check "s8b-monocle-window-count" 2
+                             (monocle--count-non-sandbox-windows))
+        (knayawp-probe-check "s8b-monocle-no-side-wins" 0
+                             (monocle--side-window-count))
+        ;; Invoke zoom-panel while monocle is active from editor window.
+        (knayawp-zoom-panel)
+        (monocle--settle)
+        (knayawp-probe-log "  after z windows: %S"
+                           (knayawp-probe-window-summary))
+        ;; Probe C: monocle gone, zoom active on magit (prior zoom restored).
+        (knayawp-probe-check "s8c-monocle-config-nil" nil
+                             (frame-parameter nil 'knayawp--monocle-config))
+        (knayawp-probe-check "s8c-zoomed-magit" 'magit
+                             knayawp--zoomed-panel)
+        (knayawp-probe-check "s8c-window-count" 3
+                             (monocle--count-non-sandbox-windows)))
+    (error (knayawp-probe-abort "s8 failed: %S" e)))
+  (monocle--teardown-layout))
+
+;;;; Scenario 9: z from monocle when monocle window is editor, no prior zoom
+
+(defun monocle--scenario-9 ()
+  "Scenario 9 — z from monocle with editor window, no prior zoom."
+  (knayawp-probe-section "SCENARIO 9 -- z from monocle with editor, no prior zoom")
+  (condition-case e
+      (let ((default-directory (file-name-as-directory sandbox--test-dir)))
+        (monocle--setup-layout)
+        ;; No zoom; enter monocle from the editor pane.
+        (knayawp-select-editor)
+        (knayawp-monocle-panel)
+        (monocle--settle)
+        (knayawp-probe-log "  in-monocle windows: %S"
+                           (knayawp-probe-window-summary))
+        ;; Probe A: monocle active, 1 window + sandbox = 2.
+        (knayawp-probe-check "s9a-monocle-config-set" t
+                             (consp (frame-parameter nil
+                                                     'knayawp--monocle-config)))
+        (knayawp-probe-check "s9a-monocle-window-count" 2
+                             (monocle--count-non-sandbox-windows))
+        ;; Invoke zoom-panel while monocle is active from editor window.
+        (knayawp-zoom-panel)
+        (monocle--settle)
+        (knayawp-probe-log "  after z windows: %S"
+                           (knayawp-probe-window-summary))
+        ;; Probe B: monocle gone, zoom NOT active, full layout restored (5 wins).
+        (knayawp-probe-check "s9b-monocle-config-nil" nil
+                             (frame-parameter nil 'knayawp--monocle-config))
+        (knayawp-probe-check "s9b-zoom-nil" nil
+                             knayawp--zoomed-panel)
+        (knayawp-probe-check "s9b-window-count" 5
+                             (monocle--count-non-sandbox-windows))
+        (knayawp-probe-check "s9b-side-win-count" 3
+                             (monocle--side-window-count)))
+    (error (knayawp-probe-abort "s9 failed: %S" e)))
+  (monocle--teardown-layout))
+
 ;;;; Drive all scenarios
 
 (knayawp-probe-watchdog 90)
@@ -301,7 +449,10 @@ Must be called with `default-directory' set to the sandbox project."
       (monocle--scenario-3)
       (monocle--scenario-4)
       (monocle--scenario-5)
-      (monocle--scenario-6))
+      (monocle--scenario-6)
+      (monocle--scenario-7)
+      (monocle--scenario-8)
+      (monocle--scenario-9))
   (error (knayawp-probe-abort "top-level error: %S" e)))
 
 (knayawp-probe-finish)
