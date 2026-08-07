@@ -2059,6 +2059,53 @@ and set `knayawp--zoomed-panel' to nil."
       ;; Zoom state must be preserved inside the saved cons.
       (should (eq (cdr stored-cfg) 'vterm)))))
 
+;;;; Monocle state management (#97)
+
+(ert-deftest knayawp-test-monocle-saves-state-on-enter ()
+  "Entering monocle saves winconfig and zoom state in frame parameter."
+  (let ((knayawp--zoomed-panel 'vterm))
+    (cl-letf (((symbol-function 'current-window-configuration)
+               (lambda () 'fake-winconfig))
+              ((symbol-function 'seq-find)
+               (lambda (&rest _) 'fake-editor-win))
+              ((symbol-function 'window-buffer)
+               (lambda (_) 'fake-buf))
+              ((symbol-function 'set-window-buffer) #'ignore)
+              ((symbol-function 'knayawp--side-windows) (lambda () nil))
+              ((symbol-function 'select-window) #'ignore)
+              ((symbol-function 'window-parameter)
+               (lambda (_w _p) nil)))
+      (set-frame-parameter nil 'knayawp--monocle-config nil)
+      (knayawp-monocle-panel)
+      (let ((cfg (frame-parameter nil 'knayawp--monocle-config)))
+        (should cfg)
+        (should (eq (car cfg) 'fake-winconfig))
+        (should (eq (cdr cfg) 'vterm))
+        (should-not knayawp--zoomed-panel))
+      (set-frame-parameter nil 'knayawp--monocle-config nil))))
+
+(ert-deftest knayawp-test-monocle-restores-state-on-exit ()
+  "Exiting monocle restores winconfig and zoom state."
+  (let* ((sentinel (current-window-configuration))
+         (restored-wc nil)
+         (knayawp--zoomed-panel nil))
+    (set-frame-parameter nil 'knayawp--monocle-config
+                         (cons sentinel 'magit))
+    (cl-letf (((symbol-function 'set-window-configuration)
+               (lambda (wc) (setq restored-wc wc))))
+      (knayawp-monocle-panel)
+      (should (eq restored-wc sentinel))
+      (should (eq knayawp--zoomed-panel 'magit))
+      (should-not (frame-parameter nil 'knayawp--monocle-config)))))
+
+(ert-deftest knayawp-test-monocle-clears-frame-param-on-exit ()
+  "After monocle exit the frame parameter is nil."
+  (set-frame-parameter nil 'knayawp--monocle-config
+                       (cons (current-window-configuration) nil))
+  (cl-letf (((symbol-function 'set-window-configuration) #'ignore))
+    (knayawp-monocle-panel))
+  (should-not (frame-parameter nil 'knayawp--monocle-config)))
+
 (ert-deftest knayawp-test-monocle-panel-command-map-binding ()
   "Command map binds Z to `knayawp-monocle-panel'."
   (should (eq 'knayawp-monocle-panel
