@@ -1373,18 +1373,10 @@ parameter so that two frames do not share monocle state."
                              (cons (current-window-configuration)
                                    knayawp--zoomed-panel))
         (setq knayawp--zoomed-panel nil)
-        (if (not editor-win)
-            ;; Called from the editor pane — delete side windows only.
-            (dolist (win (knayawp--side-windows))
-              (delete-window win))
-          ;; Common case: called from a side panel.
-          ;; Redirect the editor window to the panel buffer so there is
-          ;; still a non-side root window; then delete the now-surplus
-          ;; side windows safely.
-          (set-window-buffer editor-win panel-buf)
-          (dolist (win (knayawp--side-windows))
-            (delete-window win))
-          (select-window editor-win))))))
+        (set-window-buffer editor-win panel-buf)
+        (dolist (win (knayawp--side-windows))
+          (delete-window win))
+        (select-window editor-win)))))
 
 ;;;; Command map
 

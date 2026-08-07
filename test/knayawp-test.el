@@ -2072,9 +2072,7 @@ and set `knayawp--zoomed-panel' to nil."
                (lambda (_) 'fake-buf))
               ((symbol-function 'set-window-buffer) #'ignore)
               ((symbol-function 'knayawp--side-windows) (lambda () nil))
-              ((symbol-function 'select-window) #'ignore)
-              ((symbol-function 'window-parameter)
-               (lambda (_w _p) nil)))
+              ((symbol-function 'select-window) #'ignore))
       (set-frame-parameter nil 'knayawp--monocle-config nil)
       (knayawp-monocle-panel)
       (let ((cfg (frame-parameter nil 'knayawp--monocle-config)))
@@ -2100,11 +2098,14 @@ and set `knayawp--zoomed-panel' to nil."
 
 (ert-deftest knayawp-test-monocle-clears-frame-param-on-exit ()
   "After monocle exit the frame parameter is nil."
-  (set-frame-parameter nil 'knayawp--monocle-config
-                       (cons (current-window-configuration) nil))
-  (cl-letf (((symbol-function 'set-window-configuration) #'ignore))
-    (knayawp-monocle-panel))
-  (should-not (frame-parameter nil 'knayawp--monocle-config)))
+  (unwind-protect
+      (progn
+        (set-frame-parameter nil 'knayawp--monocle-config
+                             (cons (current-window-configuration) nil))
+        (cl-letf (((symbol-function 'set-window-configuration) #'ignore))
+          (knayawp-monocle-panel))
+        (should-not (frame-parameter nil 'knayawp--monocle-config)))
+    (set-frame-parameter nil 'knayawp--monocle-config nil)))
 
 (ert-deftest knayawp-test-monocle-panel-command-map-binding ()
   "Command map binds Z to `knayawp-monocle-panel'."
