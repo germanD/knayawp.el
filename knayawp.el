@@ -309,6 +309,14 @@ passive-loading invariant (property P7)."
   :type 'boolean
   :group 'knayawp)
 
+(defcustom knayawp-auto-theme-refresh-flag t
+  "Non-nil means refresh side panels after a theme change.
+When enabled, knayawp hooks into `enable-theme-functions' and
+double-toggles side windows to force vterm panels to re-render
+with the new theme colors."
+  :type 'boolean
+  :group 'knayawp)
+
 (defcustom knayawp-layout-hook nil
   "Hook run after `knayawp-layout-setup' creates the layout.
 Functions on this hook are called with no arguments, after all
@@ -1602,6 +1610,14 @@ recorded entry from `display-buffer-alist' and clear
 
 ;;;; Global minor mode
 
+(defun knayawp--refresh-panels-after-theme (_theme)
+  "Refresh side panels after THEME is enabled.
+Forces vterm buffers to re-render with the new theme colors."
+  (when (and knayawp-auto-theme-refresh-flag
+             (knayawp--side-windows))
+    (window-toggle-side-windows)
+    (window-toggle-side-windows)))
+
 (defvar knayawp--saved-project-switch-commands :unset
   "Saved value of `project-switch-commands' for restoration.
 Captured by `knayawp--mode-on' before installing the auto-layout
@@ -1624,7 +1640,9 @@ buffers to their configured side-window slots."
     (setq knayawp--saved-project-switch-commands
           project-switch-commands))
   (setq project-switch-commands #'knayawp-layout-setup)
-  (knayawp--install-panel-display-routing))
+  (knayawp--install-panel-display-routing)
+  (add-hook 'enable-theme-functions
+            #'knayawp--refresh-panels-after-theme))
 
 (defun knayawp--mode-off ()
   "Tear down global hooks and integration for `knayawp-mode'.
@@ -1637,7 +1655,9 @@ to the value saved at mode activation and remove the panel buffer
     (setq project-switch-commands
           knayawp--saved-project-switch-commands))
   (setq knayawp--saved-project-switch-commands :unset)
-  (knayawp--remove-panel-display-routing))
+  (knayawp--remove-panel-display-routing)
+  (remove-hook 'enable-theme-functions
+               #'knayawp--refresh-panels-after-theme))
 
 ;;;###autoload
 (define-minor-mode knayawp-mode

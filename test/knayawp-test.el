@@ -2254,4 +2254,75 @@ time instead."
     (should-not (alist-get "/fake/root/" knayawp--active-layouts
                            nil nil #'equal))))
 
+;;;; Auto theme refresh (#100)
+
+(ert-deftest knayawp-test-auto-theme-refresh-flag-default ()
+  "`knayawp-auto-theme-refresh-flag' defaults to t."
+  (should (eq t (default-value 'knayawp-auto-theme-refresh-flag))))
+
+(ert-deftest knayawp-test-mode-on-installs-theme-refresh-hook ()
+  "Enabling `knayawp-mode' registers the theme refresh handler.
+After `knayawp--mode-on' runs, `knayawp--refresh-panels-after-theme'
+must be present in `enable-theme-functions'."
+  (let ((enable-theme-functions nil)
+        (project-switch-commands 'sentinel)
+        (knayawp--saved-project-switch-commands :unset)
+        (knayawp--panel-display-entries nil)
+        (display-buffer-alist nil))
+    (unwind-protect
+        (progn
+          (knayawp--mode-on)
+          (should (memq #'knayawp--refresh-panels-after-theme
+                        enable-theme-functions)))
+      (knayawp--mode-off))))
+
+(ert-deftest knayawp-test-mode-off-removes-theme-refresh-hook ()
+  "Disabling `knayawp-mode' unregisters the theme refresh handler.
+After `knayawp--mode-off' runs, `knayawp--refresh-panels-after-theme'
+must no longer be present in `enable-theme-functions'."
+  (let ((enable-theme-functions nil)
+        (project-switch-commands 'sentinel)
+        (knayawp--saved-project-switch-commands :unset)
+        (knayawp--panel-display-entries nil)
+        (display-buffer-alist nil))
+    (knayawp--mode-on)
+    (knayawp--mode-off)
+    (should-not (memq #'knayawp--refresh-panels-after-theme
+                      enable-theme-functions))))
+
+(ert-deftest knayawp-test-refresh-panels-calls-toggle-twice ()
+  "Theme refresh handler double-toggles side windows when active.
+When `knayawp-auto-theme-refresh-flag' is t and side windows exist,
+`window-toggle-side-windows' must be called exactly twice."
+  (let ((knayawp-auto-theme-refresh-flag t)
+        (toggle-calls 0))
+    (cl-letf (((symbol-function 'knayawp--side-windows)
+               (lambda () '(fake-win)))
+              ((symbol-function 'window-toggle-side-windows)
+               (lambda () (cl-incf toggle-calls))))
+      (knayawp--refresh-panels-after-theme 'modus-vivendi)
+      (should (= 2 toggle-calls)))))
+
+(ert-deftest knayawp-test-refresh-panels-noop-when-flag-off ()
+  "Theme refresh handler is a no-op when the flag is nil."
+  (let ((knayawp-auto-theme-refresh-flag nil)
+        (toggle-calls 0))
+    (cl-letf (((symbol-function 'knayawp--side-windows)
+               (lambda () '(fake-win)))
+              ((symbol-function 'window-toggle-side-windows)
+               (lambda () (cl-incf toggle-calls))))
+      (knayawp--refresh-panels-after-theme 'modus-vivendi)
+      (should (= 0 toggle-calls)))))
+
+(ert-deftest knayawp-test-refresh-panels-noop-when-no-layout ()
+  "Theme refresh handler is a no-op when no side windows exist."
+  (let ((knayawp-auto-theme-refresh-flag t)
+        (toggle-calls 0))
+    (cl-letf (((symbol-function 'knayawp--side-windows)
+               (lambda () nil))
+              ((symbol-function 'window-toggle-side-windows)
+               (lambda () (cl-incf toggle-calls))))
+      (knayawp--refresh-panels-after-theme 'modus-operandi)
+      (should (= 0 toggle-calls)))))
+
 ;;; knayawp-test.el ends here
