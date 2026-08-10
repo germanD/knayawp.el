@@ -2154,9 +2154,9 @@ rebuilt with the new slot number."
               ((symbol-function 'knayawp--setup-magit-integration)
                (lambda () (cl-incf setup-calls))))
       (let ((setter (get 'knayawp-panels 'custom-set)))
-        (when setter
-          (funcall setter 'knayawp-panels
-                   '((magit :slot -2) (vterm :slot 0))))))
+        (should setter)
+        (funcall setter 'knayawp-panels
+                 '((magit :slot -2) (vterm :slot 0)))))
     (should (= 1 teardown-calls))
     (should (= 1 setup-calls))))
 
@@ -2170,9 +2170,9 @@ rebuilt with the new slot number."
               ((symbol-function 'knayawp--setup-magit-integration)
                (lambda () (cl-incf setup-calls))))
       (let ((setter (get 'knayawp-panels 'custom-set)))
-        (when setter
-          (funcall setter 'knayawp-panels
-                   '((magit :slot -1) (vterm :slot 0))))))
+        (should setter)
+        (funcall setter 'knayawp-panels
+                 '((magit :slot -1) (vterm :slot 0)))))
     (should (= 0 teardown-calls))
     (should (= 0 setup-calls))))
 
