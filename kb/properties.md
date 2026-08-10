@@ -1,6 +1,6 @@
 ---
 title: knayawp.el Invariants and Properties
-last-updated: 2026-07-12
+last-updated: 2026-08-10
 status: draft
 ---
 
@@ -72,7 +72,7 @@ Simply loading (`require`) the package must not activate any functionality. No h
 - If magit is not installed: the magit panel shows an informational buffer, not an error.
 - If the selected terminal backend is not installed: signal a `user-error` with a clear message naming the missing package.
 - If the frame is too narrow for the layout: skip the control pane and message the user.
-  **Status: not yet implemented.** The narrow-frame guard is tracked as v0.1.4 work (PLAN.md #30). Until then, `knayawp-layout-setup` proceeds regardless of frame width.
+  Implemented via `knayawp--frame-wide-enough-p` and `knayawp-min-editor-columns` (default 40). `knayawp-layout-setup` checks the threshold before creating any side windows.
 
 ## P9: with-editor Cooperation via Self-Managed Winconf
 

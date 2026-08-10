@@ -1,6 +1,6 @@
 ---
 title: knayawp.el Product Specification
-last-updated: 2026-07-12
+last-updated: 2026-08-10
 status: draft
 ---
 
@@ -58,13 +58,36 @@ Long-term Emacs users (not necessarily "power users") who:
 
 All three styles bind the same command surface; they differ only in the supplementary arrow-key bindings. Changing the style at runtime takes effect after calling `knayawp-rebuild-command-map`.
 
+**Style-independent key bindings** (available in every style):
+
+| Key | Command | Description |
+|-----|---------|-------------|
+| `l` | `knayawp-layout-setup` | Create / refresh the layout |
+| `q` | `knayawp-layout-teardown` | Remove the control pane |
+| `1` / `2` / `3` | `knayawp--select-panel-N` | Jump directly to panel N |
+| `n` | `knayawp-next-panel` | Cycle to the next panel |
+| `p` | `knayawp-prev-panel` | Cycle to the previous panel |
+| `0` | `knayawp-select-editor` | Return focus to the editor pane |
+| `z` | `knayawp-zoom-panel` | Zoom / unzoom the selected panel |
+| `Z` | `knayawp-monocle-panel` | Toggle full-frame monocle mode |
+| `s` | `knayawp-toggle-panels` | Show / hide all side panels |
+| `SPC` | `knayawp-terminal-copy-mode` | Enter copy/scroll mode in the terminal panel |
+| `y` | `knayawp-terminal-yank` | Yank kill-ring head into the terminal panel |
+
 **`C-x o` isolation** — `knayawp-isolate-other-window-flag` (default `t`) attaches `no-other-window` to each side window so that `C-x o` cycles only among editor-pane windows. Set to `nil` to allow `C-x o` to walk into the side windows. The change takes effect on the next `knayawp-layout-setup` call; existing side windows keep the parameter they were built with.
+
+**Monocle mode** — `knayawp-monocle-panel` (bound to `Z`) expands the selected panel to fill the entire frame, removing both the other side windows and the editor pane. Unlike `knayawp-zoom-panel` (`z`), which expands the panel within the right column only, monocle gives the panel all available screen space. Per-frame state is stored in the `knayawp--monocle-config` frame parameter as a cons `(WINDOW-CONFIG . PRIOR-ZOOM-STATE)`, so two frames never share monocle state. Calling `knayawp-zoom-panel` while monocle is active exits monocle first, then re-enters zoom for the appropriate panel — if the monocle window was showing a panel buffer, that panel is zoomed; if it was showing an editor buffer, the previously-zoomed panel (from `PRIOR-ZOOM-STATE`) is restored to zoom, or the layout is simply restored if there was no prior zoom.
+
+**Narrow frame guard** — `knayawp-min-editor-columns` (default `40`) is the minimum number of columns the editor pane must retain after the right pane takes its share (`knayawp-right-width`). When `knayawp-layout-setup` is called on a frame too narrow to meet this threshold it skips the side windows entirely and emits a warning message instead of creating an unusably cramped layout.
+
+**winner-mode integration** — `knayawp-winner-integration-flag` (default `t`) causes `knayawp-layout-teardown` to call `winner-save-conditionally` before deleting the side windows, so the full layout (including panels) is added to the `winner-mode` ring and `winner-undo` can restore it. The flag has no effect when `winner-mode` is not active, preserving the passive-loading invariant (P7).
 
 **Magit integration:**
 - Magit transient buffers (diff, log, revision) open within the magit panel, replacing status temporarily
 - Pressing `q` restores the previous magit buffer (built-in `quit-restore`)
 - `magit-process-mode` buffers (fetch, push, rebase, and other long-running git operations) are routed to the magit panel, not the editor pane.
 - `COMMIT_EDITMSG` handling depends on `knayawp-magit-commit-style` — see "Commit flow" below.
+- When `knayawp-select-panel` navigates to the magit panel, `magit-refresh` is called automatically so the status view is always current without a manual `g`.
 
 **Commit flow:**
 
@@ -98,16 +121,17 @@ This option has no effect when `knayawp-magit-commit-style` is `editor` or `off`
 **Panel configuration** — `knayawp-panels` is an alist of panel specifications:
 
 ```elisp
-'((magit  :slot -1)
-  (vterm  :slot  0)
-  (claude :slot  1))
+'((magit  :slot -1 :height 0.3)
+  (vterm  :slot  0 :height 0.4)
+  (claude :slot  1 :height 0.3))
 ```
 
-Each entry is `(TYPE :slot N)` where TYPE is one of `magit`, `vterm`, or `claude` and N is
-the side-window slot (negative = top, zero = middle, positive = bottom). Slot heights are
-equalized after layout creation. Per-panel height ratios are not yet configurable (planned
-for v0.1.4). In v0.1.x, only the three built-in panel types are supported; arbitrary panel
-types and panel rotation are v0.3 work.
+Each entry is `(TYPE :slot N)` or `(TYPE :slot N :height F)` where TYPE is one of `magit`,
+`vterm`, or `claude`, N is the side-window slot (negative = top, zero = middle, positive =
+bottom), and F is an optional height fraction (0–1). If ALL panels specify `:height`, those
+fractions are applied on initial window creation. If ANY panel omits `:height`,
+`balance-windows` equalizes all slot heights instead. In v0.1.x, only the three built-in
+panel types are supported; arbitrary panel types and panel rotation are v0.3 work.
 
 **Layout hook** — `knayawp-layout-hook` runs after `knayawp-layout-setup` completes, with all
 panels displayed and the editor window selected. Use it for per-layout customization, for
