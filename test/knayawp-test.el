@@ -2217,4 +2217,41 @@ the runtime plist accessors."
     (should (integerp (knayawp--panel-slot spec)))
     (should (null (knayawp--panel-height spec)))))
 
+;;;; Active-layouts cleanup from non-project buffers (#90)
+
+(ert-deftest knayawp-test-teardown-removes-active-layout-via-frame-param ()
+  "`knayawp-layout-teardown' cleans up `knayawp--active-layouts' using
+the frame parameter, not `project-current'.
+When called from a non-project buffer `project-current' returns nil,
+so the old `when-let* / project-current' guard would short-circuit and
+leave a stale entry.  The fix reads the frame parameter set at setup
+time instead."
+  (let ((knayawp--active-layouts
+         (list (cons "/fake/root/" '((magit . nil)))))
+        (knayawp--commit-pre-state nil)
+        (knayawp--frame-widths nil)
+        (knayawp--magit-saved-display-fn nil)
+        (knayawp--commit-display-entry nil)
+        (knayawp--process-display-entry nil)
+        (knayawp--commit-hooks-installed nil))
+    (cl-letf (((symbol-function 'knayawp--teardown-magit-integration)
+               #'ignore)
+              ((symbol-function 'knayawp--side-windows)
+               (lambda () nil))
+              ;; Simulate teardown called from a non-project buffer:
+              ;; `project-current' would return nil but the frame param is set.
+              ((symbol-function 'project-current)
+               (lambda (&optional _maybe-prompt)
+                 nil))
+              ((symbol-function 'frame-parameter)
+               (lambda (_frame sym)
+                 (when (eq sym 'knayawp--current-project-root)
+                   "/fake/root/")))
+              ((symbol-function 'set-frame-parameter)
+               #'ignore))
+      (knayawp-layout-teardown))
+    ;; The stale entry must be gone even though project-current returned nil.
+    (should-not (alist-get "/fake/root/" knayawp--active-layouts
+                           nil nil #'equal))))
+
 ;;; knayawp-test.el ends here

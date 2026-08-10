@@ -1116,7 +1116,11 @@ require knayawp-layout-teardown first"))
         ;; Apply heights: equalise when any panel omits :height.
         (unless (seq-every-p #'knayawp--panel-height knayawp-panels)
           (knayawp--balance-side-windows))
-        ;; Record the layout
+        ;; Record the layout and pin the project root to the frame so
+        ;; `knayawp-layout-teardown' can find it even when called from a
+        ;; non-project buffer (scratch, magit, etc.) where
+        ;; `project-current' returns nil.
+        (set-frame-parameter nil 'knayawp--current-project-root project-root)
         (setf (alist-get project-root knayawp--active-layouts
                          nil nil #'equal)
               (nreverse buffer-alist))
@@ -1176,8 +1180,15 @@ can restore the layout."
   (unless knayawp--frame-widths
     (remove-hook 'window-size-change-functions
                  #'knayawp--restore-right-width-on-resize))
-  (when-let* ((proj (project-current))
-              (project-root (project-root proj)))
+  ;; Remove this frame's project root from the active-layouts registry.
+  ;; Use the frame parameter set at setup time rather than re-calling
+  ;; `project-current', which returns nil when the selected buffer is
+  ;; not inside any project (scratch, magit, etc.) and would silently
+  ;; leave a stale entry that triggers a spurious warning on the next
+  ;; `knayawp-layout-setup'.
+  (when-let* ((project-root
+               (frame-parameter nil 'knayawp--current-project-root)))
+    (set-frame-parameter nil 'knayawp--current-project-root nil)
     (setf (alist-get project-root knayawp--active-layouts nil 'remove #'equal)
           nil)))
 
