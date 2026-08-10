@@ -203,13 +203,13 @@ Resolved design decisions:
 - [x] Monocle mode full-frame zoom — #85
 - [x] Auto-refresh magit-status when jumping to magit panel — #78
 - [x] Tighten 'editor' commit-style COMMIT_EDITMSG routing to a specific window — #79
-- [ ] bug: knayawp-panels :set callback doesn't refresh magit slot when panel :slot changes — #87
-- [ ] enhancement: restore :slot type validation lost when knayawp-panels :type changed to sexp — #88
-- [ ] refactor: extract knayawp--editor-columns to eliminate duplicated narrow-frame arithmetic — #89
-- [ ] enhancement: warn when knayawp-layout-setup is called with an existing layout (heights won't re-apply) — #90
-- [ ] test: replace (when setter ...) with (should setter) in knayawp-panels :set tests — #91
-- [ ] refactor: replace (message (concat ...) args) with direct format-string in message calls — #92
-- [ ] bug: knayawp-monocle-panel behaves like zoom — editor pane is not removed — #97
+- [x] bug: knayawp-panels :set callback doesn't refresh magit slot when panel :slot changes — #87
+- [x] enhancement: restore :slot type validation lost when knayawp-panels :type changed to sexp — #88
+- [x] refactor: extract knayawp--editor-columns to eliminate duplicated narrow-frame arithmetic — #89
+- [x] enhancement: warn when knayawp-layout-setup is called with an existing layout (heights won't re-apply) — #90
+- [x] test: replace (when setter ...) with (should setter) in knayawp-panels :set tests — #91
+- [x] refactor: replace (message (concat ...) args) with direct format-string in message calls — #92
+- [x] bug: knayawp-monocle-panel behaves like zoom — editor pane is not removed — #97
 
 ### v0.1.5 — Quick DevX Wins
 
