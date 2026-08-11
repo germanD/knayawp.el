@@ -1611,12 +1611,20 @@ recorded entry from `display-buffer-alist' and clear
 ;;;; Global minor mode
 
 (defun knayawp--refresh-panels-after-theme (_theme)
-  "Refresh side panels after THEME is enabled.
+  "Refresh side panels after a theme change.
 Forces vterm buffers to re-render with the new theme colors."
   (when (and knayawp-auto-theme-refresh-flag
-             (knayawp--side-windows))
-    (window-toggle-side-windows)
-    (window-toggle-side-windows)))
+             knayawp--active-layouts
+             (not knayawp--zoomed-panel)
+             (not (frame-parameter nil 'knayawp--monocle-config)))
+    (save-selected-window
+      (dolist (frame (frame-list))
+        (when (knayawp--side-windows-in-frame frame)
+          (condition-case nil
+              (progn
+                (window-toggle-side-windows frame)
+                (window-toggle-side-windows frame))
+            (error nil)))))))
 
 (defvar knayawp--saved-project-switch-commands :unset
   "Saved value of `project-switch-commands' for restoration.
@@ -1656,6 +1664,12 @@ to the value saved at mode activation and remove the panel buffer
           knayawp--saved-project-switch-commands))
   (setq knayawp--saved-project-switch-commands :unset)
   (knayawp--remove-panel-display-routing)
+  ;; The theme-refresh hook is intentionally managed at the mode
+  ;; level, not the layout level.  After `knayawp-layout-teardown',
+  ;; the hook stays registered because `knayawp--refresh-panels-after-theme'
+  ;; guards on `knayawp--active-layouts' and becomes a safe no-op when
+  ;; no layout is active.  Mode owns the hook lifecycle; teardown does
+  ;; not need to remove it.
   (remove-hook 'enable-theme-functions
                #'knayawp--refresh-panels-after-theme))
 
