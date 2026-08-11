@@ -214,6 +214,16 @@ Interactive window-management behaviour (side-window creation/deletion, zoom, mo
 
 The `pmo` agent is responsible for running this checklist at PR creation time. Do not merge a PR that fails any item.
 
+### Code-review finding delivery
+
+All code-review findings must be posted as **inline PR review threads on the originating lines**, using the GitHub Pulls Reviews API. Summarising findings only in a general PR comment is not acceptable.
+
+Use `gh api repos/OWNER/REPO/pulls/PR_NUMBER/reviews -X POST` with a `comments` array that pins each finding to the relevant file path and line. Post the review with `event: COMMENT` (non-blocking) unless the finding is a blocker, in which case use `event: REQUEST_CHANGES`.
+
+**Exception — confirmed security vulnerability.** If a finding is a confirmed security vulnerability (not merely a theoretical risk), do not post it as an inline comment on the public PR thread. Contact the author privately first, then coordinate disclosure once a fix is in place.
+
+The `code-review` agent is responsible for posting findings inline. The `pmo` agent verifies at pre-merge checklist time that all findings from a code review are present as inline threads, not only in general comments.
+
 ### Review comment follow-up
 
 When a code review finding (inline comment or general review comment) is addressed in a subsequent commit on the same PR, post **one reply per finding**, in the thread where that finding lives, citing the fixing commit. Do not batch multiple findings into a single combined comment — each finding's thread must receive its own reply.
