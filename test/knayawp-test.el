@@ -2285,44 +2285,105 @@ must no longer be present in `enable-theme-functions'."
         (knayawp--saved-project-switch-commands :unset)
         (knayawp--panel-display-entries nil)
         (display-buffer-alist nil))
-    (knayawp--mode-on)
-    (knayawp--mode-off)
-    (should-not (memq #'knayawp--refresh-panels-after-theme
-                      enable-theme-functions))))
+    (unwind-protect
+        (progn
+          (knayawp--mode-on)
+          (knayawp--mode-off)
+          (should-not (memq #'knayawp--refresh-panels-after-theme
+                            enable-theme-functions)))
+      (knayawp--mode-off))))
 
 (ert-deftest knayawp-test-refresh-panels-calls-toggle-twice ()
   "Theme refresh handler double-toggles side windows when active.
-When `knayawp-auto-theme-refresh-flag' is t and side windows exist,
-`window-toggle-side-windows' must be called exactly twice."
+When `knayawp-auto-theme-refresh-flag' is t and a layout is active,
+`window-toggle-side-windows' must be called exactly twice per frame."
   (let ((knayawp-auto-theme-refresh-flag t)
+        (knayawp--active-layouts '((fake-root . t)))
+        (knayawp--zoomed-panel nil)
         (toggle-calls 0))
-    (cl-letf (((symbol-function 'knayawp--side-windows)
-               (lambda () '(fake-win)))
+    (cl-letf (((symbol-function 'frame-parameter)
+               (lambda (_frame _param) nil))
+              ;; Use the real frame-list so save-selected-window gets a
+              ;; live frame; stub knayawp--side-windows-in-frame to
+              ;; return a non-nil list for whatever frame batch has.
+              ((symbol-function 'knayawp--side-windows-in-frame)
+               (lambda (_frame) '(fake-win)))
               ((symbol-function 'window-toggle-side-windows)
-               (lambda () (cl-incf toggle-calls))))
+               (lambda (_frame) (cl-incf toggle-calls))))
       (knayawp--refresh-panels-after-theme 'modus-vivendi)
+      ;; Batch mode has exactly one frame; expect 2 calls for that frame.
       (should (= 2 toggle-calls)))))
 
 (ert-deftest knayawp-test-refresh-panels-noop-when-flag-off ()
   "Theme refresh handler is a no-op when the flag is nil."
   (let ((knayawp-auto-theme-refresh-flag nil)
+        (knayawp--active-layouts '((fake-root . t)))
+        (knayawp--zoomed-panel nil)
         (toggle-calls 0))
-    (cl-letf (((symbol-function 'knayawp--side-windows)
-               (lambda () '(fake-win)))
+    (cl-letf (((symbol-function 'frame-parameter)
+               (lambda (_frame _param) nil))
+              ((symbol-function 'frame-list)
+               (lambda () '(fake-frame)))
+              ((symbol-function 'knayawp--side-windows-in-frame)
+               (lambda (_frame) '(fake-win)))
               ((symbol-function 'window-toggle-side-windows)
-               (lambda () (cl-incf toggle-calls))))
+               (lambda (_frame) (cl-incf toggle-calls))))
       (knayawp--refresh-panels-after-theme 'modus-vivendi)
       (should (= 0 toggle-calls)))))
 
 (ert-deftest knayawp-test-refresh-panels-noop-when-no-layout ()
-  "Theme refresh handler is a no-op when no side windows exist."
+  "Theme refresh handler is a no-op when no knayawp layout is active."
   (let ((knayawp-auto-theme-refresh-flag t)
+        (knayawp--active-layouts nil)
+        (knayawp--zoomed-panel nil)
         (toggle-calls 0))
-    (cl-letf (((symbol-function 'knayawp--side-windows)
-               (lambda () nil))
+    (cl-letf (((symbol-function 'frame-parameter)
+               (lambda (_frame _param) nil))
+              ((symbol-function 'frame-list)
+               (lambda () '(fake-frame)))
+              ((symbol-function 'knayawp--side-windows-in-frame)
+               (lambda (_frame) '(fake-win)))
               ((symbol-function 'window-toggle-side-windows)
-               (lambda () (cl-incf toggle-calls))))
+               (lambda (_frame) (cl-incf toggle-calls))))
       (knayawp--refresh-panels-after-theme 'modus-operandi)
+      (should (= 0 toggle-calls)))))
+
+(ert-deftest knayawp-test-refresh-panels-noop-when-zoomed ()
+  "Theme refresh is a no-op when a panel is zoomed.
+`knayawp--zoomed-panel' non-nil means the guard fires and
+`window-toggle-side-windows' must not be called."
+  (let ((knayawp-auto-theme-refresh-flag t)
+        (knayawp--active-layouts '((fake-root . t)))
+        (knayawp--zoomed-panel 'terminal)
+        (toggle-calls 0))
+    (cl-letf (((symbol-function 'frame-parameter)
+               (lambda (_frame _param) nil))
+              ((symbol-function 'frame-list)
+               (lambda () '(fake-frame)))
+              ((symbol-function 'knayawp--side-windows-in-frame)
+               (lambda (_frame) '(fake-win)))
+              ((symbol-function 'window-toggle-side-windows)
+               (lambda (_frame) (cl-incf toggle-calls))))
+      (knayawp--refresh-panels-after-theme 'modus-vivendi)
+      (should (= 0 toggle-calls)))))
+
+(ert-deftest knayawp-test-refresh-panels-noop-when-monocle ()
+  "Theme refresh is a no-op when monocle mode is active.
+The `knayawp--monocle-config' frame parameter being non-nil must
+prevent `window-toggle-side-windows' from being called."
+  (let ((knayawp-auto-theme-refresh-flag t)
+        (knayawp--active-layouts '((fake-root . t)))
+        (knayawp--zoomed-panel nil)
+        (toggle-calls 0))
+    (cl-letf (((symbol-function 'frame-parameter)
+               (lambda (_frame _param) 'saved-cfg))
+              ((symbol-function 'frame-list)
+               (lambda () '(fake-frame)))
+              ((symbol-function 'knayawp--side-windows-in-frame)
+               (lambda (_frame) '(fake-win)))
+              ((symbol-function 'window-toggle-side-windows)
+               (lambda (_frame) (cl-incf toggle-calls))))
+      (knayawp--refresh-panels-after-theme 'modus-vivendi)
       (should (= 0 toggle-calls)))))
 
 ;;; knayawp-test.el ends here
