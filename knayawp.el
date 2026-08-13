@@ -357,6 +357,16 @@ with the new theme colors."
   :type 'boolean
   :group 'knayawp)
 
+(defcustom knayawp-side-pane-visit-style 'default
+  "How to handle file visits triggered from a side panel.
+`default' lets Emacs choose the display location normally.
+`managed-split' opens the visited buffer in a vertical split of
+the editor pane, so the side panel retains focus until the user
+dismisses the split."
+  :type '(choice (const :tag "Emacs default behaviour" default)
+                 (const :tag "Vertical split in editor pane" managed-split))
+  :group 'knayawp)
+
 (defcustom knayawp-layout-hook nil
   "Hook run after `knayawp-layout-setup' creates the layout.
 Functions on this hook are called with no arguments, after all
@@ -454,6 +464,10 @@ with keys:
   "Non-nil when the fixup flow hooks are currently installed.
 Set by `knayawp--install-fixup-hooks', cleared by
 `knayawp--remove-fixup-hooks' so install/remove are idempotent.")
+
+(defvar knayawp--visit-display-entry nil
+  "The `display-buffer-alist' entry added for side-pane visit routing.
+Stored for precise removal.")
 
 ;;;; Project detection
 
@@ -1312,6 +1326,9 @@ require knayawp-layout-teardown first"))
               (nreverse buffer-alist))
         ;; Install magit integration
         (knayawp--setup-magit-integration)
+        ;; Install side-pane visit routing when the style requests it.
+        (when (eq knayawp-side-pane-visit-style 'managed-split)
+          (knayawp--install-visit-routing))
         ;; Select the main editor window and record it for COMMIT_EDITMSG
         ;; routing so the `editor' commit style can target it precisely.
         (knayawp--select-editor-window)
@@ -1359,6 +1376,7 @@ can restore the layout."
              (fboundp 'winner-save-conditionally))
     (winner-save-conditionally))
   (knayawp--teardown-magit-integration)
+  (knayawp--remove-visit-routing)
   (let ((side-windows (knayawp--side-windows)))
     (dolist (win side-windows)
       (delete-window win)))
@@ -1788,6 +1806,68 @@ recorded entry from `display-buffer-alist' and clear
   (dolist (entry knayawp--panel-display-entries)
     (setq display-buffer-alist (delq entry display-buffer-alist)))
   (setq knayawp--panel-display-entries nil))
+
+;;;; Side-pane visit routing (#52)
+
+(defun knayawp--visit-from-side-window-p (buffer _action)
+  "Return non-nil when BUFFER should open in an editor split.
+Condition function for `display-buffer-alist'.  Returns non-nil
+when ALL conditions hold: style is \\='managed-split, a layout
+is active, monocle is off, the selected window is a side window,
+BUFFER is not a knayawp panel buffer, and BUFFER is not a magit
+buffer."
+  (and (eq knayawp-side-pane-visit-style 'managed-split)
+       knayawp--active-layouts
+       (null (frame-parameter nil 'knayawp--monocle-config))
+       (window-parameter (selected-window) 'window-side)
+       (let ((name (buffer-name (if (bufferp buffer) buffer
+                                  (get-buffer buffer)))))
+         (and (stringp name)
+              (not (string-prefix-p "*knayawp-" name))
+              (not (string-prefix-p "magit" name))))))
+
+(defun knayawp--display-in-editor-split (buffer alist)
+  "Display BUFFER in a vertical split of the editor pane.
+ALIST is the action alist from `display-buffer'; it is not used
+but must be accepted per the `display-buffer' action function
+contract.  Finds the first non-side window, splits it to the
+right, and places BUFFER there.  Returns the new window, or nil
+when no editor window is found (letting `display-buffer' fall
+through to the next action)."
+  (let ((editor-win
+         (seq-find (lambda (win)
+                     (not (window-parameter win 'window-side)))
+                   (window-list nil 'no-minibuf))))
+    (when editor-win
+      (let ((new-win (split-window editor-win nil 'right)))
+        (set-window-buffer new-win buffer)
+        ;; Honor display-buffer conventions by recording the split.
+        (set-window-parameter new-win 'quit-restore
+                              (list 'window 'window
+                                    (selected-window) buffer))
+        (ignore alist)
+        new-win))))
+
+(defun knayawp--install-visit-routing ()
+  "Install the side-pane visit `display-buffer-alist' entry.
+Builds and pushes an entry that routes file visits triggered
+from a side window to a vertical split of the editor pane.
+Stores the entry in `knayawp--visit-display-entry' for precise
+removal.  Idempotent."
+  (unless knayawp--visit-display-entry
+    (setq knayawp--visit-display-entry
+          `(knayawp--visit-from-side-window-p
+            (knayawp--display-in-editor-split)))
+    (push knayawp--visit-display-entry display-buffer-alist)))
+
+(defun knayawp--remove-visit-routing ()
+  "Remove the side-pane visit `display-buffer-alist' entry.
+Inverse of `knayawp--install-visit-routing'.  No-op when the
+entry was never installed."
+  (when knayawp--visit-display-entry
+    (setq display-buffer-alist
+          (delq knayawp--visit-display-entry display-buffer-alist))
+    (setq knayawp--visit-display-entry nil)))
 
 ;;;; Global minor mode
 
