@@ -1617,14 +1617,33 @@ Forces vterm buffers to re-render with the new theme colors."
              knayawp--active-layouts
              (not knayawp--zoomed-panel)
              (not (frame-parameter nil 'knayawp--monocle-config)))
-    (save-selected-window
+    ;; `window-toggle-side-windows' uses `window-state-put' to restore
+    ;; side windows, which may assign fresh window objects rather than
+    ;; reusing the live ones that `save-selected-window' captured.
+    ;; Track focus by buffer+slot before the toggle and re-select by
+    ;; slot after restoration so the user stays in the same panel.
+    (let* ((sel (selected-window))
+           (sel-buf (window-buffer sel))
+           (sel-slot (window-parameter sel 'window-slot))
+           (sel-side (window-parameter sel 'window-side)))
       (dolist (frame (frame-list))
         (when (knayawp--side-windows-in-frame frame)
           (condition-case nil
               (progn
                 (window-toggle-side-windows frame)
                 (window-toggle-side-windows frame))
-            (error nil)))))))
+            (error nil))))
+      ;; Re-select the side window at the same slot when the selected
+      ;; window was a side window before the refresh.
+      (when sel-side
+        (let ((restored-win
+               (seq-find
+                (lambda (w)
+                  (and (eq (window-parameter w 'window-slot) sel-slot)
+                       (eq (window-buffer w) sel-buf)))
+                (knayawp--side-windows-in-frame (selected-frame)))))
+          (when (window-live-p restored-win)
+            (select-window restored-win)))))))
 
 (defvar knayawp--saved-project-switch-commands :unset
   "Saved value of `project-switch-commands' for restoration.
