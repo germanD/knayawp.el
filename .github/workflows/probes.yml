@@ -1,0 +1,48 @@
+name: Probe suite
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'knayawp.el'
+      - 'test/**'
+      - 'kb/**'
+  pull_request:
+    paths:
+      - 'knayawp.el'
+      - 'test/**'
+      - 'kb/**'
+
+jobs:
+  ert:
+    name: ERT unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Emacs
+        run: sudo apt-get update && sudo apt-get install -y emacs
+      - name: Byte-compile
+        run: emacs -batch -f batch-byte-compile knayawp.el
+      - name: Checkdoc
+        run: emacs -batch -l knayawp.el --eval '(checkdoc-file "knayawp.el")'
+      - name: ERT
+        run: emacs -batch -l ert -l knayawp.el -l test/knayawp-test.el -f ert-run-tests-batch-and-exit
+
+  probes:
+    name: Integration probes
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      TERM: xterm-256color
+      KNAYAWP_PROBE_GEOM: 200x50
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install dependencies
+        run: sudo apt-get update && sudo apt-get install -y emacs tmux
+      - name: Cache ELPA packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.emacs.d/elpa
+          key: elpa-${{ hashFiles('test/sandbox.el') }}
+      - name: Run probe suite
+        run: bash test/run-probes.sh
