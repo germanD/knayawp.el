@@ -220,6 +220,8 @@ All code-review findings must be posted as **inline PR review threads on the ori
 
 Use `gh api repos/OWNER/REPO/pulls/PR_NUMBER/reviews -X POST` with a `comments` array that pins each finding to the relevant file path and line. Post the review with `event: COMMENT` (non-blocking) unless the finding is a blocker, in which case use `event: REQUEST_CHANGES`.
 
+**Note**: GitHub blocks `REQUEST_CHANGES` reviews on your own pull requests (returns 422). Since this is a solo project, always use `event: "COMMENT"`. Indicate severity in the comment body text (e.g. "confirmed bug") instead.
+
 **Exception — confirmed security vulnerability.** If a finding is a confirmed security vulnerability (not merely a theoretical risk), do not post it as an inline comment on the public PR thread. Contact the author privately first, then coordinate disclosure once a fix is in place.
 
 The `code-review` agent is responsible for posting findings inline. The `pmo` agent verifies at pre-merge checklist time that all findings from a code review are present as inline threads, not only in general comments.
@@ -232,14 +234,16 @@ When a code review finding (inline comment or general review comment) is address
 
 **One reply per finding, in its own thread.** If a fix commit addresses three findings, post three separate replies: one in each finding's thread.
 
-For inline comment threads, use the inline reply endpoint:
+For inline comment threads, use the inline reply endpoint — include the PR number in the path:
 ```
-gh api repos/OWNER/REPO/pulls/comments/COMMENT_ID/replies -X POST -f body="Fixed in SHA — description."
+gh api repos/germanD/knayawp.el/pulls/PR_NUMBER/comments/COMMENT_ID/replies -X POST -f body="Fixed in SHA — description."
 ```
 
-If that returns 404 (known limitation on this repo), fall back to a PR issue-level comment that explicitly cites the original comment ID — still one comment per finding:
+**Critical**: The PR number (`PR_NUMBER`) is required in the path between `pulls/` and `comments/`. Omitting it returns 404 and silently routes the reply to the wrong URL. Always verify the URL contains both the PR number AND the comment ID before posting.
+
+If the endpoint returns 404 despite the correct URL, fall back to a PR issue-level comment citing the comment ID — still one comment per finding:
 ```
-gh api repos/OWNER/REPO/issues/PR_NUMBER/comments -X POST -f body="Fixed in SHA — description. (re: inline comment #discussion_rCOMMENT_ID)"
+gh api repos/germanD/knayawp.el/issues/PR_NUMBER/comments -X POST -f body="Fixed in SHA — description. (re: inline comment #COMMENT_ID)"
 ```
 
 For general (issue-level) review comments, post a new comment on the PR issue thread:
