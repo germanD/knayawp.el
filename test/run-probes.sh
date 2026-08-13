@@ -42,15 +42,8 @@ for probe in "${probes[@]}"; do
     ELAPSED=$(( SECONDS - START ))
     status="$(printf '%s\n' "$out" | grep -oE 'STATUS: [A-Z]+' | tail -1)"
     result="$(printf '%s\n' "$out" | grep -oE 'RESULT:.*' | tail -1)"
-    # Distinguish INCOMPLETE (watchdog) from RED (assertion failure).
-    display_status="${status:-NO-STATUS}"
-    if printf '%s' "$status" | grep -q 'STATUS: INCOMPLETE'; then
-        display_status="INCOMPLETE"
-    elif printf '%s' "$status" | grep -q 'STATUS: RED'; then
-        display_status="RED"
-    elif printf '%s' "$status" | grep -q 'STATUS: GREEN'; then
-        display_status="GREEN"
-    fi
+    display_status="${status#STATUS: }"
+    display_status="${display_status:-NO-STATUS}"
     printf '%-44s %-18s %s [%ds]\n' "$name" "$display_status" "$result" "$ELAPSED"
     if ! printf '%s' "$status" | grep -q 'STATUS: GREEN'; then
         failures=$((failures + 1))

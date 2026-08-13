@@ -7,16 +7,19 @@ on:
       - 'knayawp.el'
       - 'test/**'
       - 'kb/**'
+      - '.github/workflows/probes.yml'
   pull_request:
     paths:
       - 'knayawp.el'
       - 'test/**'
       - 'kb/**'
+      - '.github/workflows/probes.yml'
 
 jobs:
   ert:
     name: ERT unit tests
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
       - name: Install Emacs
@@ -29,6 +32,7 @@ jobs:
         run: emacs -batch -l ert -l knayawp.el -l test/knayawp-test.el -f ert-run-tests-batch-and-exit
 
   probes:
+    needs: ert
     name: Integration probes
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -43,6 +47,6 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.emacs.d/elpa
-          key: elpa-${{ hashFiles('test/sandbox.el') }}
+          key: elpa-${{ hashFiles('test/sandbox.el', 'knayawp.el') }}
       - name: Run probe suite
         run: bash test/run-probes.sh
