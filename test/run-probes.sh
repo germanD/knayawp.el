@@ -10,7 +10,7 @@
 #
 # A probe may request a specific frame geometry with a header comment:
 #   ;; Probe-Geometry: 40x50
-# Otherwise run-probe.sh's default geometry is used.
+# Otherwise the KNAYAWP_PROBE_GEOM env var is used (default 200x50).
 
 set -uo pipefail
 
@@ -31,12 +31,27 @@ echo
 failures=0
 for probe in "${probes[@]}"; do
     name="$(basename "$probe")"
+    # Probe-level geometry override; fall back to env var then runner default.
     geom="$(grep -m1 -oE 'Probe-Geometry:[[:space:]]*[0-9]+x[0-9]+' "$probe" \
                 | grep -oE '[0-9]+x[0-9]+' || true)"
+    if [ -z "$geom" ] && [ -n "${KNAYAWP_PROBE_GEOM:-}" ]; then
+        geom="$KNAYAWP_PROBE_GEOM"
+    fi
+    START=$SECONDS
     out="$("$RUNNER" "$probe" ${geom:+"$geom"} 2>&1)"
+    ELAPSED=$(( SECONDS - START ))
     status="$(printf '%s\n' "$out" | grep -oE 'STATUS: [A-Z]+' | tail -1)"
     result="$(printf '%s\n' "$out" | grep -oE 'RESULT:.*' | tail -1)"
-    printf '%-44s %-18s %s\n' "$name" "${status:-NO-STATUS}" "$result"
+    # Distinguish INCOMPLETE (watchdog) from RED (assertion failure).
+    display_status="${status:-NO-STATUS}"
+    if printf '%s' "$status" | grep -q 'STATUS: INCOMPLETE'; then
+        display_status="INCOMPLETE"
+    elif printf '%s' "$status" | grep -q 'STATUS: RED'; then
+        display_status="RED"
+    elif printf '%s' "$status" | grep -q 'STATUS: GREEN'; then
+        display_status="GREEN"
+    fi
+    printf '%-44s %-18s %s [%ds]\n' "$name" "$display_status" "$result" "$ELAPSED"
     if ! printf '%s' "$status" | grep -q 'STATUS: GREEN'; then
         failures=$((failures + 1))
         echo "----- full output: $name -----"
@@ -51,4 +66,4 @@ if [ "$failures" -eq 0 ]; then
 else
     echo "Suite RED: $failures of ${#probes[@]} probe(s) failed."
 fi
-exit "$failures"
+exit $(( failures > 0 ? 1 : 0 ))
