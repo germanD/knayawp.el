@@ -112,15 +112,11 @@ Marks the run INCOMPLETE so a timeout never reads as GREEN."
 (defun knayawp-probe-assert-side-window-count (expected label)
   "Fail with LABEL unless side-window count equals EXPECTED."
   (let ((actual (length (knayawp--side-windows))))
-    (knayawp-probe-log "  %s: side-windows expected=%d actual=%d"
-                       label expected actual)
     (knayawp-probe-check label expected actual)))
 
 (defun knayawp-probe-assert-total-window-count (expected label)
   "Fail with LABEL unless total non-minibuffer window count equals EXPECTED."
   (let ((actual (length (window-list nil 'no-minibuf))))
-    (knayawp-probe-log "  %s: total-windows expected=%d actual=%d"
-                       label expected actual)
     (knayawp-probe-check label expected actual)))
 
 (defun knayawp-probe-assert-no-side-windows (label)
@@ -130,15 +126,11 @@ Marks the run INCOMPLETE so a timeout never reads as GREEN."
 (defun knayawp-probe-assert-selected-window-slot (expected-slot label)
   "Fail with LABEL unless selected window has EXPECTED-SLOT."
   (let ((actual (window-parameter (selected-window) 'window-slot)))
-    (knayawp-probe-log "  %s: window-slot expected=%S actual=%S"
-                       label expected-slot actual)
     (knayawp-probe-check label expected-slot actual)))
 
 (defun knayawp-probe-assert-selected-window-side (expected-side label)
   "Fail with LABEL unless selected window has EXPECTED-SIDE."
   (let ((actual (window-parameter (selected-window) 'window-side)))
-    (knayawp-probe-log "  %s: window-side expected=%S actual=%S"
-                       label expected-side actual)
     (knayawp-probe-check label expected-side actual)))
 
 (defun knayawp-probe-assert-window-buf-at-slot (slot pattern label)
@@ -147,8 +139,6 @@ Marks the run INCOMPLETE so a timeout never reads as GREEN."
                           (= slot (window-parameter w 'window-slot)))
                         (knayawp--side-windows)))
          (buf-name (and win (buffer-name (window-buffer win)))))
-    (knayawp-probe-log "  %s: slot=%d pattern=%S buf=%S"
-                       label slot pattern buf-name)
     (knayawp-probe-check label t
                          (and (stringp buf-name)
                               (string-match-p pattern buf-name))
@@ -158,26 +148,20 @@ Marks the run INCOMPLETE so a timeout never reads as GREEN."
 
 (defun knayawp-probe-assert-zoomed (expected-panel label)
   "Fail with LABEL unless `knayawp--zoomed-panel' eq EXPECTED-PANEL."
-  (knayawp-probe-log "  %s: zoomed-panel expected=%S actual=%S"
-                     label expected-panel knayawp--zoomed-panel)
   (knayawp-probe-check label expected-panel knayawp--zoomed-panel #'eq))
 
 (defun knayawp-probe-assert-not-zoomed (label)
   "Fail with LABEL if `knayawp--zoomed-panel' is non-nil."
-  (knayawp-probe-log "  %s: zoomed-panel=%S (want nil)"
-                     label knayawp--zoomed-panel)
   (knayawp-probe-check label nil knayawp--zoomed-panel))
 
 (defun knayawp-probe-assert-monocle-active (label)
   "Fail with LABEL unless monocle frame parameter is non-nil."
   (let ((cfg (frame-parameter nil 'knayawp--monocle-config)))
-    (knayawp-probe-log "  %s: monocle-config=%S (want non-nil)" label cfg)
     (knayawp-probe-check label t (not (null cfg)) #'eq)))
 
 (defun knayawp-probe-assert-monocle-inactive (label)
   "Fail with LABEL if monocle frame parameter is non-nil."
   (let ((cfg (frame-parameter nil 'knayawp--monocle-config)))
-    (knayawp-probe-log "  %s: monocle-config=%S (want nil)" label cfg)
     (knayawp-probe-check label nil cfg)))
 
 ;;;; Frame / window parameter assertions
@@ -185,15 +169,11 @@ Marks the run INCOMPLETE so a timeout never reads as GREEN."
 (defun knayawp-probe-assert-frame-param (param expected label)
   "Fail with LABEL unless frame parameter PARAM equals EXPECTED."
   (let ((actual (frame-parameter nil param)))
-    (knayawp-probe-log "  %s: frame-param %S expected=%S actual=%S"
-                       label param expected actual)
     (knayawp-probe-check label expected actual)))
 
 (defun knayawp-probe-assert-window-param (window param expected label)
   "Fail with LABEL unless WINDOW parameter PARAM equals EXPECTED."
   (let ((actual (window-parameter window param)))
-    (knayawp-probe-log "  %s: window-param %S expected=%S actual=%S"
-                       label param expected actual)
     (knayawp-probe-check label expected actual)))
 
 ;;;; Shared setup / teardown (consolidates per-probe boilerplate)
