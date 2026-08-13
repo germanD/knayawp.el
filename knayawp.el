@@ -309,6 +309,14 @@ passive-loading invariant (property P7)."
   :type 'boolean
   :group 'knayawp)
 
+(defcustom knayawp-auto-theme-refresh-flag t
+  "Non-nil means refresh side panels after a theme change.
+When enabled, knayawp hooks into `enable-theme-functions' and
+double-toggles side windows to force vterm panels to re-render
+with the new theme colors."
+  :type 'boolean
+  :group 'knayawp)
+
 (defcustom knayawp-layout-hook nil
   "Hook run after `knayawp-layout-setup' creates the layout.
 Functions on this hook are called with no arguments, after all
@@ -1602,6 +1610,41 @@ recorded entry from `display-buffer-alist' and clear
 
 ;;;; Global minor mode
 
+(defun knayawp--refresh-panels-after-theme (_theme)
+  "Refresh side panels after a theme change.
+Forces vterm buffers to re-render with the new theme colors."
+  (when (and knayawp-auto-theme-refresh-flag
+             knayawp--active-layouts
+             (not knayawp--zoomed-panel)
+             (not (frame-parameter nil 'knayawp--monocle-config)))
+    ;; `window-toggle-side-windows' uses `window-state-put' to restore
+    ;; side windows, which may assign fresh window objects rather than
+    ;; reusing the live ones that `save-selected-window' captured.
+    ;; Track focus by buffer+slot before the toggle and re-select by
+    ;; slot after restoration so the user stays in the same panel.
+    (let* ((sel (selected-window))
+           (sel-buf (window-buffer sel))
+           (sel-slot (window-parameter sel 'window-slot))
+           (sel-side (window-parameter sel 'window-side)))
+      (dolist (frame (frame-list))
+        (when (knayawp--side-windows-in-frame frame)
+          (condition-case nil
+              (progn
+                (window-toggle-side-windows frame)
+                (window-toggle-side-windows frame))
+            (error nil))))
+      ;; Re-select the side window at the same slot when the selected
+      ;; window was a side window before the refresh.
+      (when sel-side
+        (let ((restored-win
+               (seq-find
+                (lambda (w)
+                  (and (eq (window-parameter w 'window-slot) sel-slot)
+                       (eq (window-buffer w) sel-buf)))
+                (knayawp--side-windows-in-frame (selected-frame)))))
+          (when (window-live-p restored-win)
+            (select-window restored-win)))))))
+
 (defvar knayawp--saved-project-switch-commands :unset
   "Saved value of `project-switch-commands' for restoration.
 Captured by `knayawp--mode-on' before installing the auto-layout
@@ -1624,7 +1667,9 @@ buffers to their configured side-window slots."
     (setq knayawp--saved-project-switch-commands
           project-switch-commands))
   (setq project-switch-commands #'knayawp-layout-setup)
-  (knayawp--install-panel-display-routing))
+  (knayawp--install-panel-display-routing)
+  (add-hook 'enable-theme-functions
+            #'knayawp--refresh-panels-after-theme))
 
 (defun knayawp--mode-off ()
   "Tear down global hooks and integration for `knayawp-mode'.
@@ -1637,7 +1682,15 @@ to the value saved at mode activation and remove the panel buffer
     (setq project-switch-commands
           knayawp--saved-project-switch-commands))
   (setq knayawp--saved-project-switch-commands :unset)
-  (knayawp--remove-panel-display-routing))
+  (knayawp--remove-panel-display-routing)
+  ;; The theme-refresh hook is intentionally managed at the mode
+  ;; level, not the layout level.  After `knayawp-layout-teardown',
+  ;; the hook stays registered because `knayawp--refresh-panels-after-theme'
+  ;; guards on `knayawp--active-layouts' and becomes a safe no-op when
+  ;; no layout is active.  Mode owns the hook lifecycle; teardown does
+  ;; not need to remove it.
+  (remove-hook 'enable-theme-functions
+               #'knayawp--refresh-panels-after-theme))
 
 ;;;###autoload
 (define-minor-mode knayawp-mode
