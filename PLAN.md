@@ -225,6 +225,8 @@ Resolved design decisions:
 - [ ] New probe: knayawp-magit-commit-focus-after variants (magit, previous) — #106
 - [ ] AGENTS.md: probe authoring guide (naming, Probe-Geometry header, ERT/probe boundary) — #107
 - [ ] ERT: fix two misplaced tests (zoom batch trivially passes; monocle mocks overcomplicated) — #108
+- [ ] docs: Claude Code Notification hook to get OS alerts when Claude waits for input — #113
+- [ ] feat: send editor selection to Claude vterm panel as context reference — #115
 
 ---
 
@@ -271,6 +273,10 @@ Emacs 27+ `tab-bar-mode` is the natural fit — each tab can represent a project
 - [ ] `knayawp-project-close` — close tab, kill project-specific tool buffers
 - [ ] Keymap entries (under `knayawp-command-map`): `P` for switch, `o` for open, `c` for close
 - [ ] Alternative layouts for narrow screens (side pane as overlay) — #51 (deferred from v0.1.5)
+- [ ] feat: visual overlay notification when a project file changes externally — #112
+- [ ] feat: Emacs notification bridge for Claude vterm panel (alert.el integration) — #114
+- [ ] feat: direct vterm injection for send-to-Claude (requires prompt detection) — #116
+- [ ] kb: stub KB entries for filenotify overlay, Claude notification, send-to-Claude — #117
 
 ### v0.2.1 — Visual Navigation Bar
 - [ ] Customize `tab-bar-format` to show project names prominently
