@@ -1065,8 +1065,9 @@ entries, and unregister the commit-flow hooks."
 
 (defun knayawp--editor-columns ()
   "Return the number of columns available for the editor pane."
-  (let ((right-cols (round (* (frame-width) knayawp-right-width))))
-    (- (frame-width) right-cols)))
+  (let* ((total (frame-width))
+         (right-cols (round (* total knayawp-right-width))))
+    (- total right-cols)))
 
 (defun knayawp--frame-wide-enough-p ()
   "Return non-nil when the frame is wide enough for the layout.
