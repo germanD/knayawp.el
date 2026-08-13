@@ -190,11 +190,32 @@ styles do not place focus on commit end."
 `off' disables special handling."
   :type '(choice (const :tag "Auto-focus log-select window" zoom)
                  (const :tag "No special handling" off))
+  :set (lambda (sym val)
+         (custom-set-default sym val)
+         ;; Reconcile fixup-style state only when the magit
+         ;; integration is currently installed; otherwise the new
+         ;; value is picked up by the next `knayawp-layout-setup'.
+         ;; `fboundp' guard tolerates a `setopt' issued before
+         ;; the rest of the file has finished loading.
+         (when (and (fboundp 'knayawp--reconcile-fixup-style)
+                    (boundp 'magit-display-buffer-function)
+                    (eq magit-display-buffer-function
+                        #'knayawp--magit-display-buffer))
+           (knayawp--reconcile-fixup-style)))
   :group 'knayawp)
 
 (defcustom knayawp-magit-fixup-focus-after 'editor
   "Window to select after a fixup commit lands or is aborted.
-Same choices as `knayawp-magit-commit-focus-after'."
+
+`editor' (the default) selects the editor pane, consistent with
+`knayawp-select-editor' and with the idea that magit and the
+terminals are visited briefly from the editor.
+
+`magit' selects the magit side window if one exists.
+
+`previous' returns to the window that was selected when `c f'
+was invoked (captured as `:pre-fixup-window' in
+`knayawp--fixup-pre-state')."
   :type '(choice (const :tag "Editor pane" editor)
                  (const :tag "Magit side window" magit)
                  (const :tag "Window selected before fixup" previous))
@@ -1122,6 +1143,12 @@ session is active."
       (when (and target (window-live-p target))
         (select-window target)))))
 
+(defun knayawp--fixup-buffer-kill-handler ()
+  "Clear fixup state when the log-select buffer is killed directly."
+  (when (and (derived-mode-p 'magit-log-select-mode)
+             (knayawp--fixup-flow-active-p))
+    (setq knayawp--fixup-pre-state nil)))
+
 (defun knayawp--install-fixup-hooks ()
   "Register knayawp's fixup-focus handlers on the relevant hooks.
 Idempotent.  Called from `knayawp--reconcile-fixup-style' when
@@ -1133,6 +1160,8 @@ Idempotent.  Called from `knayawp--reconcile-fixup-style' when
               #'knayawp--magit-log-select-finish-handler)
     (add-hook 'magit-log-select-quit-hook
               #'knayawp--magit-log-select-cancel-handler)
+    (add-hook 'kill-buffer-hook
+              #'knayawp--fixup-buffer-kill-handler)
     (setq knayawp--fixup-hooks-installed t)))
 
 (defun knayawp--remove-fixup-hooks ()
@@ -1145,6 +1174,8 @@ Inverse of `knayawp--install-fixup-hooks'.  Idempotent."
                  #'knayawp--magit-log-select-finish-handler)
     (remove-hook 'magit-log-select-quit-hook
                  #'knayawp--magit-log-select-cancel-handler)
+    (remove-hook 'kill-buffer-hook
+                 #'knayawp--fixup-buffer-kill-handler)
     (setq knayawp--fixup-hooks-installed nil)))
 
 (defun knayawp--reconcile-fixup-style ()
@@ -1312,6 +1343,9 @@ can restore the layout."
     (setq knayawp--commit-pre-state nil)
     (message
      "knayawp: layout torn down during active commit; state cleared"))
+  (when (knayawp--fixup-flow-active-p)
+    (setq knayawp--fixup-pre-state nil)
+    (message "knayawp: layout torn down during active fixup; state cleared"))
   ;; Clear monocle state: restoring the saved config would be
   ;; meaningless once the layout is gone.
   (set-frame-parameter nil 'knayawp--monocle-config nil)
