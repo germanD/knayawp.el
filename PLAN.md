@@ -219,7 +219,7 @@ Resolved design decisions:
 - [ ] Managed transient splits in editor pane for side-pane-triggered visits — #52
 - [ ] nit: bind frame-width once in knayawp--editor-columns to avoid double call — #96
 - [ ] enhancement: magit fixup (c f) flow — focus magit-log-select window automatically — #98
-- [ ] enhancement: auto-refresh vterm panels after theme change — #100
+- [x] enhancement: auto-refresh vterm panels after theme change — #100
 
 ---
 
