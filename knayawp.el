@@ -60,6 +60,9 @@
 (defvar with-editor-post-finish-hook)
 (defvar with-editor-post-cancel-hook)
 (defvar server-switch-hook)
+(defvar magit-log-select-mode-hook)
+(defvar magit-log-select-pick-hook)
+(defvar magit-log-select-quit-hook)
 (declare-function magit-mode-get-buffer "magit-mode")
 
 ;;;; Customization group
@@ -179,6 +182,22 @@ styles do not place focus on commit end."
   :type '(choice (const :tag "Editor pane" editor)
                  (const :tag "Magit side window" magit)
                  (const :tag "Window selected before commit" previous))
+  :group 'knayawp)
+
+(defcustom knayawp-magit-fixup-style 'zoom
+  "Strategy for the magit fixup commit-selection flow.
+`zoom' auto-focuses the `magit-log-select' window after `c f'.
+`off' disables special handling."
+  :type '(choice (const :tag "Auto-focus log-select window" zoom)
+                 (const :tag "No special handling" off))
+  :group 'knayawp)
+
+(defcustom knayawp-magit-fixup-focus-after 'editor
+  "Window to select after a fixup commit lands or is aborted.
+Same choices as `knayawp-magit-commit-focus-after'."
+  :type '(choice (const :tag "Editor pane" editor)
+                 (const :tag "Magit side window" magit)
+                 (const :tag "Window selected before fixup" previous))
   :group 'knayawp)
 
 (defcustom knayawp-isolate-other-window-flag t
@@ -399,6 +418,21 @@ Set by `knayawp--install-commit-hooks' and cleared by
 The shim that bridges `knayawp-magit-commit-in-editor-flag' and
 `knayawp-magit-commit-style' messages the user once per Emacs
 session.  This flag is also used by ERT to reset between tests.")
+
+(defvar knayawp--fixup-pre-state nil
+  "Plist capturing pre-fixup window state.
+Nil when no fixup-selection session is active.  Otherwise a plist
+with keys:
+
+  :active           Non-nil while the fixup-focus flow is in effect.
+  :pre-fixup-window Window selected when the fixup was initiated;
+                    consulted when `knayawp-magit-fixup-focus-after'
+                    is `previous'.")
+
+(defvar knayawp--fixup-hooks-installed nil
+  "Non-nil when the fixup flow hooks are currently installed.
+Set by `knayawp--install-fixup-hooks', cleared by
+`knayawp--remove-fixup-hooks' so install/remove are idempotent.")
 
 ;;;; Project detection
 
@@ -1011,6 +1045,116 @@ reconcile invariant is documented in `kb/properties.md' as P10."
       ('zoom   (knayawp--install-commit-hooks))
       ('off    nil))))
 
+;;;; Fixup-focus flow
+
+(defun knayawp--fixup-flow-active-p ()
+  "Return non-nil if a fixup-selection session is currently active."
+  (and knayawp--fixup-pre-state
+       (plist-get knayawp--fixup-pre-state :active)))
+
+(defun knayawp--fixup-focus-target-window ()
+  "Return the window to select after a fixup finishes or cancels.
+Driven by `knayawp-magit-fixup-focus-after'.  Falls back to the
+editor pane when the requested target is not available."
+  (pcase knayawp-magit-fixup-focus-after
+    ('editor
+     (seq-find (lambda (win)
+                 (not (window-parameter win 'window-side)))
+               (window-list)))
+    ('magit
+     (let ((magit-spec (assq 'magit knayawp-panels)))
+       (or (and magit-spec
+                (knayawp--side-window-for-slot
+                 (knayawp--panel-slot magit-spec)))
+           (seq-find (lambda (win)
+                       (not (window-parameter win 'window-side)))
+                     (window-list)))))
+    ('previous
+     (let ((win (and knayawp--fixup-pre-state
+                     (plist-get knayawp--fixup-pre-state
+                                :pre-fixup-window))))
+       (if (and win (window-live-p win))
+           win
+         (seq-find (lambda (w)
+                     (not (window-parameter w 'window-side)))
+                   (window-list)))))
+    (_
+     (seq-find (lambda (win)
+                 (not (window-parameter win 'window-side)))
+               (window-list)))))
+
+(defun knayawp--magit-log-select-setup-handler ()
+  "Auto-focus the magit slot when `magit-log-select-mode' activates.
+Added to `magit-log-select-mode-hook'.  No-ops unless:
+- `knayawp-magit-fixup-style' is `zoom',
+- a knayawp layout is active in the current frame, and
+- no fixup-focus session is already running."
+  (when (and (eq knayawp-magit-fixup-style 'zoom)
+             knayawp--active-layouts
+             (not (knayawp--fixup-flow-active-p)))
+    (let* ((magit-spec (assq 'magit knayawp-panels))
+           (magit-win (and magit-spec
+                           (knayawp--side-window-for-slot
+                            (knayawp--panel-slot magit-spec)))))
+      (when magit-win
+        (setq knayawp--fixup-pre-state
+              (list :active t
+                    :pre-fixup-window (selected-window)))
+        (select-window magit-win)))))
+
+(defun knayawp--magit-log-select-finish-handler ()
+  "Restore focus after a fixup target is picked.
+Added to `magit-log-select-pick-hook'.  No-op when no fixup-focus
+session is active."
+  (when (knayawp--fixup-flow-active-p)
+    (let ((target (knayawp--fixup-focus-target-window)))
+      (setq knayawp--fixup-pre-state nil)
+      (when (and target (window-live-p target))
+        (select-window target)))))
+
+(defun knayawp--magit-log-select-cancel-handler ()
+  "Restore focus after a fixup selection is canceled.
+Added to `magit-log-select-quit-hook'.  No-op when no fixup-focus
+session is active."
+  (when (knayawp--fixup-flow-active-p)
+    (let ((target (knayawp--fixup-focus-target-window)))
+      (setq knayawp--fixup-pre-state nil)
+      (when (and target (window-live-p target))
+        (select-window target)))))
+
+(defun knayawp--install-fixup-hooks ()
+  "Register knayawp's fixup-focus handlers on the relevant hooks.
+Idempotent.  Called from `knayawp--reconcile-fixup-style' when
+`knayawp-magit-fixup-style' is `zoom'."
+  (unless knayawp--fixup-hooks-installed
+    (add-hook 'magit-log-select-mode-hook
+              #'knayawp--magit-log-select-setup-handler)
+    (add-hook 'magit-log-select-pick-hook
+              #'knayawp--magit-log-select-finish-handler)
+    (add-hook 'magit-log-select-quit-hook
+              #'knayawp--magit-log-select-cancel-handler)
+    (setq knayawp--fixup-hooks-installed t)))
+
+(defun knayawp--remove-fixup-hooks ()
+  "Unregister knayawp's fixup-focus handlers.
+Inverse of `knayawp--install-fixup-hooks'.  Idempotent."
+  (when knayawp--fixup-hooks-installed
+    (remove-hook 'magit-log-select-mode-hook
+                 #'knayawp--magit-log-select-setup-handler)
+    (remove-hook 'magit-log-select-pick-hook
+                 #'knayawp--magit-log-select-finish-handler)
+    (remove-hook 'magit-log-select-quit-hook
+                 #'knayawp--magit-log-select-cancel-handler)
+    (setq knayawp--fixup-hooks-installed nil)))
+
+(defun knayawp--reconcile-fixup-style ()
+  "Make fixup-style hook state match `knayawp-magit-fixup-style'.
+Install hooks when style is `zoom'; remove them otherwise.
+Mirrors `knayawp--reconcile-commit-style'."
+  (if (eq knayawp-magit-fixup-style 'zoom)
+      (knayawp--install-fixup-hooks)
+    (knayawp--remove-fixup-hooks)))
+
 (defun knayawp--setup-magit-integration ()
   "Install magit buffer display integration.
 Save the current `magit-display-buffer-function' and replace it
@@ -1031,6 +1175,7 @@ pane."
       (setq magit-display-buffer-function
             #'knayawp--magit-display-buffer))
     (knayawp--reconcile-commit-style)
+    (knayawp--reconcile-fixup-style)
     (unless knayawp--process-display-entry
       (let ((slot (knayawp--panel-slot
                    (assq 'magit knayawp-panels))))
@@ -1059,7 +1204,8 @@ entries, and unregister the commit-flow hooks."
     (setq display-buffer-alist
           (delq knayawp--process-display-entry display-buffer-alist))
     (setq knayawp--process-display-entry nil))
-  (knayawp--remove-commit-hooks))
+  (knayawp--remove-commit-hooks)
+  (knayawp--remove-fixup-hooks))
 
 ;;;; Layout engine
 

@@ -2386,4 +2386,248 @@ prevent `window-toggle-side-windows' from being called."
       (knayawp--refresh-panels-after-theme 'modus-vivendi)
       (should (= 0 toggle-calls)))))
 
+;;;; Fixup-focus flow (#98)
+
+(ert-deftest knayawp-test-fixup-flag-default ()
+  "`knayawp-magit-fixup-style' defaults to `zoom'."
+  (should (eq 'zoom (default-value 'knayawp-magit-fixup-style))))
+
+(ert-deftest knayawp-test-fixup-focus-after-default ()
+  "`knayawp-magit-fixup-focus-after' defaults to `editor'."
+  (should (eq 'editor (default-value 'knayawp-magit-fixup-focus-after))))
+
+(ert-deftest knayawp-test-fixup-hooks-installed-on-mode-on ()
+  "Setup installs all three fixup hooks when style is `zoom'."
+  (when (require 'magit nil t)
+    (let ((original magit-display-buffer-function)
+          (knayawp--magit-saved-display-fn nil)
+          (knayawp--commit-display-entry nil)
+          (knayawp--process-display-entry nil)
+          (knayawp--commit-hooks-installed nil)
+          (knayawp--fixup-hooks-installed nil)
+          (knayawp--commit-style-shim-warned t)
+          (knayawp-magit-fixup-style 'zoom)
+          (knayawp-magit-commit-style 'zoom)
+          (magit-log-select-mode-hook nil)
+          (magit-log-select-pick-hook nil)
+          (magit-log-select-quit-hook nil)
+          (display-buffer-alist nil))
+      (unwind-protect
+          (progn
+            (knayawp--setup-magit-integration)
+            (should (memq #'knayawp--magit-log-select-setup-handler
+                          magit-log-select-mode-hook))
+            (should (memq #'knayawp--magit-log-select-finish-handler
+                          magit-log-select-pick-hook))
+            (should (memq #'knayawp--magit-log-select-cancel-handler
+                          magit-log-select-quit-hook))
+            (should knayawp--fixup-hooks-installed))
+        (knayawp--teardown-magit-integration)
+        (setq magit-display-buffer-function original)))))
+
+(ert-deftest knayawp-test-fixup-hooks-removed-on-mode-off ()
+  "Teardown removes all three fixup hooks."
+  (when (require 'magit nil t)
+    (let ((original magit-display-buffer-function)
+          (knayawp--magit-saved-display-fn nil)
+          (knayawp--commit-display-entry nil)
+          (knayawp--process-display-entry nil)
+          (knayawp--commit-hooks-installed nil)
+          (knayawp--fixup-hooks-installed nil)
+          (knayawp--commit-style-shim-warned t)
+          (knayawp-magit-fixup-style 'zoom)
+          (knayawp-magit-commit-style 'zoom)
+          (magit-log-select-mode-hook nil)
+          (magit-log-select-pick-hook nil)
+          (magit-log-select-quit-hook nil)
+          (display-buffer-alist nil))
+      (unwind-protect
+          (progn
+            (knayawp--setup-magit-integration)
+            (knayawp--teardown-magit-integration)
+            (should-not (memq #'knayawp--magit-log-select-setup-handler
+                              magit-log-select-mode-hook))
+            (should-not (memq #'knayawp--magit-log-select-finish-handler
+                              magit-log-select-pick-hook))
+            (should-not (memq #'knayawp--magit-log-select-cancel-handler
+                              magit-log-select-quit-hook))
+            (should-not knayawp--fixup-hooks-installed))
+        (setq magit-display-buffer-function original)))))
+
+(ert-deftest knayawp-test-fixup-setup-handler-noop-when-style-off ()
+  "Setup handler is a no-op when `knayawp-magit-fixup-style' is `off'."
+  (let ((knayawp-magit-fixup-style 'off)
+        (knayawp--active-layouts '((fake-root . t)))
+        (knayawp--fixup-pre-state nil)
+        (selected nil))
+    (cl-letf (((symbol-function 'knayawp--side-window-for-slot)
+               (lambda (_slot) 'fake-window))
+              ((symbol-function 'select-window)
+               (lambda (win &optional _norecord) (setq selected win))))
+      (knayawp--magit-log-select-setup-handler)
+      (should-not selected)
+      (should-not knayawp--fixup-pre-state))))
+
+(ert-deftest knayawp-test-fixup-setup-handler-noop-without-layout ()
+  "Setup handler is a no-op when `knayawp--active-layouts' is nil."
+  (let ((knayawp-magit-fixup-style 'zoom)
+        (knayawp--active-layouts nil)
+        (knayawp--fixup-pre-state nil)
+        (selected nil))
+    (cl-letf (((symbol-function 'knayawp--side-window-for-slot)
+               (lambda (_slot) 'fake-window))
+              ((symbol-function 'select-window)
+               (lambda (win &optional _norecord) (setq selected win))))
+      (knayawp--magit-log-select-setup-handler)
+      (should-not selected)
+      (should-not knayawp--fixup-pre-state))))
+
+(ert-deftest knayawp-test-fixup-setup-handler-noop-without-magit-window ()
+  "Setup handler is a no-op when the magit side window does not exist."
+  (let ((knayawp-magit-fixup-style 'zoom)
+        (knayawp--active-layouts '((fake-root . t)))
+        (knayawp--fixup-pre-state nil)
+        (selected nil))
+    (cl-letf (((symbol-function 'knayawp--side-window-for-slot)
+               (lambda (_slot) nil))
+              ((symbol-function 'select-window)
+               (lambda (win &optional _norecord) (setq selected win))))
+      (knayawp--magit-log-select-setup-handler)
+      (should-not selected)
+      (should-not knayawp--fixup-pre-state))))
+
+(ert-deftest knayawp-test-fixup-setup-handler-focuses-magit-window ()
+  "Setup handler focuses the magit window when all conditions are met."
+  (let ((knayawp-magit-fixup-style 'zoom)
+        (knayawp--active-layouts '((fake-root . t)))
+        (knayawp--fixup-pre-state nil)
+        (selected nil))
+    (unwind-protect
+        (cl-letf (((symbol-function 'knayawp--side-window-for-slot)
+                   (lambda (_slot) 'fake-magit-win))
+                  ((symbol-function 'select-window)
+                   (lambda (win &optional _norecord) (setq selected win))))
+          (knayawp--magit-log-select-setup-handler)
+          (should (eq selected 'fake-magit-win))
+          (should (knayawp--fixup-flow-active-p)))
+      (setq knayawp--fixup-pre-state nil))))
+
+(ert-deftest knayawp-test-fixup-setup-handler-noop-when-already-active ()
+  "Setup handler is a no-op when a fixup session is already active."
+  (let ((knayawp-magit-fixup-style 'zoom)
+        (knayawp--active-layouts '((fake-root . t)))
+        (knayawp--fixup-pre-state (list :active t :pre-fixup-window nil))
+        (selected nil))
+    (unwind-protect
+        (cl-letf (((symbol-function 'knayawp--side-window-for-slot)
+                   (lambda (_slot) 'fake-window))
+                  ((symbol-function 'select-window)
+                   (lambda (win &optional _norecord) (setq selected win))))
+          (knayawp--magit-log-select-setup-handler)
+          (should-not selected))
+      (setq knayawp--fixup-pre-state nil))))
+
+(ert-deftest knayawp-test-fixup-finish-handler-clears-state ()
+  "Finish handler clears `knayawp--fixup-pre-state' and places focus."
+  (let ((knayawp-magit-fixup-focus-after 'editor)
+        (knayawp--fixup-pre-state (list :active t :pre-fixup-window nil))
+        (selected nil))
+    (cl-letf (((symbol-function 'window-list)
+               (lambda (&rest _) (list 'editor-win)))
+              ((symbol-function 'window-parameter)
+               (lambda (_win _param) nil))
+              ((symbol-function 'window-live-p)
+               (lambda (_win) t))
+              ((symbol-function 'select-window)
+               (lambda (win &optional _norecord) (setq selected win))))
+      (knayawp--magit-log-select-finish-handler)
+      (should-not knayawp--fixup-pre-state)
+      (should (eq selected 'editor-win)))))
+
+(ert-deftest knayawp-test-fixup-cancel-handler-clears-state ()
+  "Cancel handler clears `knayawp--fixup-pre-state' and places focus."
+  (let ((knayawp-magit-fixup-focus-after 'editor)
+        (knayawp--fixup-pre-state (list :active t :pre-fixup-window nil))
+        (selected nil))
+    (cl-letf (((symbol-function 'window-list)
+               (lambda (&rest _) (list 'editor-win)))
+              ((symbol-function 'window-parameter)
+               (lambda (_win _param) nil))
+              ((symbol-function 'window-live-p)
+               (lambda (_win) t))
+              ((symbol-function 'select-window)
+               (lambda (win &optional _norecord) (setq selected win))))
+      (knayawp--magit-log-select-cancel-handler)
+      (should-not knayawp--fixup-pre-state)
+      (should (eq selected 'editor-win)))))
+
+(ert-deftest knayawp-test-fixup-finish-handler-noop-when-idle ()
+  "Finish handler is a no-op when no fixup session is active."
+  (let ((knayawp--fixup-pre-state nil)
+        (selected nil))
+    (cl-letf (((symbol-function 'select-window)
+               (lambda (win &optional _norecord) (setq selected win))))
+      (knayawp--magit-log-select-finish-handler)
+      (should-not selected)
+      (should-not knayawp--fixup-pre-state))))
+
+(ert-deftest knayawp-test-fixup-cancel-handler-noop-when-idle ()
+  "Cancel handler is a no-op when no fixup session is active."
+  (let ((knayawp--fixup-pre-state nil)
+        (selected nil))
+    (cl-letf (((symbol-function 'select-window)
+               (lambda (win &optional _norecord) (setq selected win))))
+      (knayawp--magit-log-select-cancel-handler)
+      (should-not selected)
+      (should-not knayawp--fixup-pre-state))))
+
+(ert-deftest knayawp-test-fixup-install-idempotent ()
+  "`knayawp--install-fixup-hooks' is idempotent.
+Double-install must not add duplicate entries to the hooks."
+  (let ((knayawp--fixup-hooks-installed nil))
+    (unwind-protect
+        (progn
+          (knayawp--install-fixup-hooks)
+          (knayawp--install-fixup-hooks)
+          ;; The flag is set after first install and blocks the second.
+          (should knayawp--fixup-hooks-installed)
+          ;; Each handler must appear at most once on the global hooks.
+          (should (<= (cl-count #'knayawp--magit-log-select-setup-handler
+                                magit-log-select-mode-hook)
+                      1))
+          (should (<= (cl-count #'knayawp--magit-log-select-finish-handler
+                                magit-log-select-pick-hook)
+                      1))
+          (should (<= (cl-count #'knayawp--magit-log-select-cancel-handler
+                                magit-log-select-quit-hook)
+                      1)))
+      (knayawp--remove-fixup-hooks))))
+
+(ert-deftest knayawp-test-fixup-remove-idempotent ()
+  "`knayawp--remove-fixup-hooks' is idempotent."
+  (let ((knayawp--fixup-hooks-installed nil))
+    ;; Remove when not installed must not error.
+    (knayawp--remove-fixup-hooks)
+    (should-not knayawp--fixup-hooks-installed)))
+
+(ert-deftest knayawp-test-reconcile-fixup-style-zoom-installs ()
+  "`knayawp--reconcile-fixup-style' installs hooks when style is `zoom'."
+  (let ((knayawp-magit-fixup-style 'zoom)
+        (knayawp--fixup-hooks-installed nil))
+    (unwind-protect
+        (progn
+          (knayawp--reconcile-fixup-style)
+          (should knayawp--fixup-hooks-installed))
+      (knayawp--remove-fixup-hooks))))
+
+(ert-deftest knayawp-test-reconcile-fixup-style-off-removes ()
+  "`knayawp--reconcile-fixup-style' removes hooks when style is `off'."
+  (let ((knayawp-magit-fixup-style 'zoom)
+        (knayawp--fixup-hooks-installed nil))
+    (knayawp--install-fixup-hooks)
+    (should knayawp--fixup-hooks-installed)
+    (setq knayawp-magit-fixup-style 'off)
+    (knayawp--reconcile-fixup-style)
+    (should-not knayawp--fixup-hooks-installed)))
+
 ;;; knayawp-test.el ends here
