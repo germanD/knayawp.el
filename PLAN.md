@@ -213,13 +213,18 @@ Resolved design decisions:
 
 ### v0.1.5 — Quick DevX Wins
 
-- [ ] One-shot copy/paste bindings for terminal panels (`C-c k SPC` / `w` / `y`) — #77
+- [x] One-shot copy/paste bindings for terminal panels (`C-c k SPC` / `w` / `y`) — #77
 - [ ] Promote probe harness to first-class integration-test tier — #80
-- [ ] Alternative layouts for narrow screens (side pane as overlay) — #51
 - [ ] Managed transient splits in editor pane for side-pane-triggered visits — #52
 - [ ] nit: bind frame-width once in knayawp--editor-columns to avoid double call — #96
 - [ ] enhancement: magit fixup (c f) flow — focus magit-log-select window automatically — #98
 - [x] enhancement: auto-refresh vterm panels after theme change — #100
+- [ ] New probe: layout immunity (P1) — C-x 0, C-x 2/3, C-x o isolation flag — #103
+- [ ] New probe: knayawp-toggle-panels — #104
+- [ ] New probe: commit-cancel flow — #105
+- [ ] New probe: knayawp-magit-commit-focus-after variants (magit, previous) — #106
+- [ ] AGENTS.md: probe authoring guide (naming, Probe-Geometry header, ERT/probe boundary) — #107
+- [ ] ERT: fix two misplaced tests (zoom batch trivially passes; monocle mocks overcomplicated) — #108
 
 ---
 
@@ -265,6 +270,7 @@ Emacs 27+ `tab-bar-mode` is the natural fit — each tab can represent a project
 - [ ] `knayawp-project-switch` — switch to an existing project tab (with completion)
 - [ ] `knayawp-project-close` — close tab, kill project-specific tool buffers
 - [ ] Keymap entries (under `knayawp-command-map`): `P` for switch, `o` for open, `c` for close
+- [ ] Alternative layouts for narrow screens (side pane as overlay) — #51 (deferred from v0.1.5)
 
 ### v0.2.1 — Visual Navigation Bar
 - [ ] Customize `tab-bar-format` to show project names prominently
