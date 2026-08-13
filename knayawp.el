@@ -362,9 +362,26 @@ with the new theme colors."
 `default' lets Emacs choose the display location normally.
 `managed-split' opens the visited buffer in a vertical split of
 the editor pane, so the side panel retains focus until the user
-dismisses the split."
+dismisses the split.
+
+Changing this value via \\[customize-option], `setopt', or
+`customize-set-variable' reconciles routing immediately when a
+layout is active.  Plain `setq' bypasses the `:set' form
+\(standard Emacs behavior); call \\[knayawp-layout-setup] after a
+`setq' to apply the new value."
   :type '(choice (const :tag "Emacs default behaviour" default)
                  (const :tag "Vertical split in editor pane" managed-split))
+  :set (lambda (sym new-value)
+         (custom-set-default sym new-value)
+         ;; Reconcile routing only when the helper functions are
+         ;; already loaded (guard against early load-order firing)
+         ;; and the package has an active layout.
+         (when (and (fboundp 'knayawp--remove-visit-routing)
+                    (fboundp 'knayawp--install-visit-routing))
+           (knayawp--remove-visit-routing)
+           (when (and (eq new-value 'managed-split)
+                      (bound-and-true-p knayawp--active-layouts))
+             (knayawp--install-visit-routing))))
   :group 'knayawp)
 
 (defcustom knayawp-layout-hook nil
@@ -1813,40 +1830,31 @@ recorded entry from `display-buffer-alist' and clear
   "Return non-nil when BUFFER should open in an editor split.
 Condition function for `display-buffer-alist'.  Returns non-nil
 when ALL conditions hold: style is \\='managed-split, a layout
-is active, monocle is off, the selected window is a side window,
-BUFFER is not a knayawp panel buffer, and BUFFER is not a magit
-buffer."
+is active, monocle is off, the selected window is a right side
+window, BUFFER is not a knayawp panel buffer, and BUFFER has a
+backing file (real file visit, not a magit transient buffer)."
   (and (eq knayawp-side-pane-visit-style 'managed-split)
        knayawp--active-layouts
        (null (frame-parameter nil 'knayawp--monocle-config))
-       (window-parameter (selected-window) 'window-side)
-       (let ((name (buffer-name (if (bufferp buffer) buffer
-                                  (get-buffer buffer)))))
-         (and (stringp name)
-              (not (string-prefix-p "*knayawp-" name))
-              (not (string-prefix-p "magit" name))))))
+       (eq (window-parameter (selected-window) 'window-side) 'right)
+       (let ((buf (if (bufferp buffer) buffer (get-buffer buffer))))
+         (and buf
+              (not (string-prefix-p "*knayawp-"
+                                    (buffer-name buf)))
+              (buffer-file-name buf)))))
 
-(defun knayawp--display-in-editor-split (buffer alist)
-  "Display BUFFER in a vertical split of the editor pane.
-ALIST is the action alist from `display-buffer'; it is not used
-but must be accepted per the `display-buffer' action function
-contract.  Finds the first non-side window, splits it to the
-right, and places BUFFER there.  Returns the new window, or nil
-when no editor window is found (letting `display-buffer' fall
-through to the next action)."
-  (let ((editor-win
-         (seq-find (lambda (win)
-                     (not (window-parameter win 'window-side)))
-                   (window-list nil 'no-minibuf))))
-    (when editor-win
-      (let ((new-win (split-window editor-win nil 'right)))
-        (set-window-buffer new-win buffer)
-        ;; Honor display-buffer conventions by recording the split.
-        (set-window-parameter new-win 'quit-restore
-                              (list 'window 'window
-                                    (selected-window) buffer))
-        (ignore alist)
-        new-win))))
+(defun knayawp--display-in-editor-split (buffer _alist)
+  "Display BUFFER in a right split of the editor pane.
+Action function for `display-buffer-alist'.  Uses the recorded
+`knayawp--editor-window' when it is live; this avoids picking the
+sandbox helper or a user split when multiple non-side windows
+exist.  Returns the new window, or nil when no editor window is
+found, letting `display-buffer' fall through to the next action."
+  (when-let* ((editor-win (and (window-live-p knayawp--editor-window)
+                               knayawp--editor-window)))
+    (display-buffer-in-direction
+     buffer
+     `((direction . right) (window . ,editor-win)))))
 
 (defun knayawp--install-visit-routing ()
   "Install the side-pane visit `display-buffer-alist' entry.
