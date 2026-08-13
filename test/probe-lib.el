@@ -53,6 +53,9 @@
 (defvar knayawp-probe--aborted nil
   "Non-nil when the run ended via `knayawp-probe-abort' (e.g. timeout).")
 
+(defvar knayawp-probe--saved-commit-style nil
+  "Value of `knayawp-magit-commit-style' saved by `knayawp-probe-setup-layout'.")
+
 (defun knayawp-probe-log (fmt &rest args)
   "Append a free-form report line formatted from FMT and ARGS."
   (push (apply #'format fmt args) knayawp-probe--lines))
@@ -191,6 +194,7 @@ Marks the run INCOMPLETE so a timeout never reads as GREEN."
   (set-frame-parameter nil 'knayawp--monocle-config nil)
   (knayawp-mode 1)
   (when commit-style
+    (setq knayawp-probe--saved-commit-style knayawp-magit-commit-style)
     (setq knayawp-magit-commit-style commit-style))
   (knayawp-layout-setup)
   (sit-for knayawp-probe--settle))
@@ -202,7 +206,10 @@ Marks the run INCOMPLETE so a timeout never reads as GREEN."
   (when (frame-parameter nil 'knayawp--monocle-config)
     (knayawp-monocle-panel))
   (knayawp-layout-teardown)
-  (knayawp-mode -1))
+  (knayawp-mode -1)
+  (when knayawp-probe--saved-commit-style
+    (setq knayawp-magit-commit-style knayawp-probe--saved-commit-style)
+    (setq knayawp-probe--saved-commit-style nil)))
 
 ;;;; Probe utility functions
 
