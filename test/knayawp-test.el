@@ -2581,27 +2581,44 @@ prevent `window-toggle-side-windows' from being called."
       (should-not selected)
       (should-not knayawp--fixup-pre-state))))
 
+(ert-deftest knayawp-test-fixup-buffer-kill-handler-clears-state ()
+  "Kill-buffer handler clears fixup state when log-select buffer is killed.
+When `knayawp--fixup-pre-state' is active and a buffer in
+`magit-log-select-mode' is killed, the handler must clear the state."
+  (let ((saved-state knayawp--fixup-pre-state)
+        (knayawp--fixup-pre-state
+         (list :active t :pre-fixup-window nil)))
+    (unwind-protect
+        (cl-letf (((symbol-function 'derived-mode-p)
+                   (lambda (mode) (eq mode 'magit-log-select-mode))))
+          (knayawp--fixup-buffer-kill-handler)
+          (should-not knayawp--fixup-pre-state))
+      (setq knayawp--fixup-pre-state saved-state))))
+
 (ert-deftest knayawp-test-fixup-install-idempotent ()
   "`knayawp--install-fixup-hooks' is idempotent.
 Double-install must not add duplicate entries to the hooks."
-  (let ((knayawp--fixup-hooks-installed nil))
+  (let ((knayawp--fixup-hooks-installed nil)
+        (add-hook-calls nil))
     (unwind-protect
-        (progn
+        (cl-letf (((symbol-function 'add-hook)
+                   (lambda (hook fn &rest _)
+                     (push (cons hook fn) add-hook-calls))))
           (knayawp--install-fixup-hooks)
           (knayawp--install-fixup-hooks)
           ;; The flag is set after first install and blocks the second.
           (should knayawp--fixup-hooks-installed)
-          ;; Each handler must appear at most once on the global hooks.
-          (should (<= (cl-count #'knayawp--magit-log-select-setup-handler
-                                magit-log-select-mode-hook)
-                      1))
-          (should (<= (cl-count #'knayawp--magit-log-select-finish-handler
-                                magit-log-select-pick-hook)
-                      1))
-          (should (<= (cl-count #'knayawp--magit-log-select-cancel-handler
-                                magit-log-select-quit-hook)
-                      1)))
-      (knayawp--remove-fixup-hooks))))
+          ;; Each handler must appear exactly once in the recorded calls.
+          (should (= (cl-count 'magit-log-select-mode-hook add-hook-calls
+                               :key #'car)
+                     1))
+          (should (= (cl-count 'magit-log-select-pick-hook add-hook-calls
+                               :key #'car)
+                     1))
+          (should (= (cl-count 'magit-log-select-quit-hook add-hook-calls
+                               :key #'car)
+                     1)))
+      (setq knayawp--fixup-hooks-installed nil))))
 
 (ert-deftest knayawp-test-fixup-remove-idempotent ()
   "`knayawp--remove-fixup-hooks' is idempotent."
