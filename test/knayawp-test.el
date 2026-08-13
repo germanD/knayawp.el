@@ -2647,4 +2647,220 @@ Double-install must not add duplicate entries to the hooks."
     (knayawp--reconcile-fixup-style)
     (should-not knayawp--fixup-hooks-installed)))
 
+;;;; Side-pane visit routing (#52)
+
+(ert-deftest knayawp-test-side-pane-visit-style-default ()
+  "`knayawp-side-pane-visit-style' defaults to `default'."
+  (should (eq 'default (default-value 'knayawp-side-pane-visit-style))))
+
+(ert-deftest knayawp-test-visit-condition-requires-managed-split-style ()
+  "Condition returns nil when style is `default'."
+  (let ((knayawp-side-pane-visit-style 'default)
+        (knayawp--active-layouts '(("/fake/" . t)))
+        (buf (get-buffer-create " *knayawp-test-visit-default*")))
+    (unwind-protect
+        (cl-letf (((symbol-function 'frame-parameter)
+                   (lambda (_f _p) nil))
+                  ((symbol-function 'window-parameter)
+                   (lambda (_w _p) 'right))
+                  ((symbol-function 'selected-window)
+                   (lambda () 'fake-side-win)))
+          (should-not (knayawp--visit-from-side-window-p buf nil)))
+      (when (buffer-live-p buf) (kill-buffer buf)))))
+
+(ert-deftest knayawp-test-visit-condition-requires-active-layout ()
+  "Condition returns nil when `knayawp--active-layouts' is nil."
+  (let ((knayawp-side-pane-visit-style 'managed-split)
+        (knayawp--active-layouts nil)
+        (buf (get-buffer-create " *knayawp-test-visit-no-layout*")))
+    (unwind-protect
+        (cl-letf (((symbol-function 'frame-parameter)
+                   (lambda (_f _p) nil))
+                  ((symbol-function 'window-parameter)
+                   (lambda (_w _p) 'right))
+                  ((symbol-function 'selected-window)
+                   (lambda () 'fake-side-win)))
+          (should-not (knayawp--visit-from-side-window-p buf nil)))
+      (when (buffer-live-p buf) (kill-buffer buf)))))
+
+(ert-deftest knayawp-test-visit-condition-requires-side-window-selected ()
+  "Condition returns nil when no `window-side' param on selected window."
+  (let ((knayawp-side-pane-visit-style 'managed-split)
+        (knayawp--active-layouts '(("/fake/" . t)))
+        (buf (get-buffer-create " *knayawp-test-visit-no-side*")))
+    (unwind-protect
+        (cl-letf (((symbol-function 'frame-parameter)
+                   (lambda (_f _p) nil))
+                  ;; window-parameter returns nil → not a side window.
+                  ((symbol-function 'window-parameter)
+                   (lambda (_w _p) nil))
+                  ((symbol-function 'selected-window)
+                   (lambda () 'fake-editor-win)))
+          (should-not (knayawp--visit-from-side-window-p buf nil)))
+      (when (buffer-live-p buf) (kill-buffer buf)))))
+
+(ert-deftest knayawp-test-visit-condition-excludes-knayawp-buffers ()
+  "Condition returns nil for `*knayawp-vterm-proj*' buffers."
+  (let ((knayawp-side-pane-visit-style 'managed-split)
+        (knayawp--active-layouts '(("/fake/" . t)))
+        (buf (get-buffer-create "*knayawp-vterm-proj*")))
+    (unwind-protect
+        (cl-letf (((symbol-function 'frame-parameter)
+                   (lambda (_f _p) nil))
+                  ((symbol-function 'window-parameter)
+                   (lambda (_w _p) 'right))
+                  ((symbol-function 'selected-window)
+                   (lambda () 'fake-side-win)))
+          (should-not (knayawp--visit-from-side-window-p buf nil)))
+      (when (buffer-live-p buf) (kill-buffer buf)))))
+
+(ert-deftest knayawp-test-visit-condition-excludes-magit-buffers ()
+  "Condition returns nil for magit-status named buffers."
+  (let ((knayawp-side-pane-visit-style 'managed-split)
+        (knayawp--active-layouts '(("/fake/" . t)))
+        (buf (get-buffer-create "magit-status: foo")))
+    (unwind-protect
+        (cl-letf (((symbol-function 'frame-parameter)
+                   (lambda (_f _p) nil))
+                  ((symbol-function 'window-parameter)
+                   (lambda (_w _p) 'right))
+                  ((symbol-function 'selected-window)
+                   (lambda () 'fake-side-win)))
+          (should-not (knayawp--visit-from-side-window-p buf nil)))
+      (when (buffer-live-p buf) (kill-buffer buf)))))
+
+(ert-deftest knayawp-test-visit-condition-requires-no-monocle ()
+  "Condition returns nil when monocle frame param is set."
+  (let ((knayawp-side-pane-visit-style 'managed-split)
+        (knayawp--active-layouts '(("/fake/" . t)))
+        (buf (get-buffer-create " *knayawp-test-visit-monocle*")))
+    (unwind-protect
+        (cl-letf (;; frame-parameter returns non-nil → monocle is active.
+                  ((symbol-function 'frame-parameter)
+                   (lambda (_f _p) 'saved-config))
+                  ((symbol-function 'window-parameter)
+                   (lambda (_w _p) 'right))
+                  ((symbol-function 'selected-window)
+                   (lambda () 'fake-side-win)))
+          (should-not (knayawp--visit-from-side-window-p buf nil)))
+      (when (buffer-live-p buf) (kill-buffer buf)))))
+
+(ert-deftest knayawp-test-visit-display-entry-initially-nil ()
+  "`knayawp--visit-display-entry' is nil before installation."
+  (should-not knayawp--visit-display-entry))
+
+(ert-deftest knayawp-test-install-visit-routing-adds-entry ()
+  "Install adds one entry to `display-buffer-alist'."
+  (let ((display-buffer-alist nil)
+        (knayawp--visit-display-entry nil))
+    (unwind-protect
+        (progn
+          (knayawp--install-visit-routing)
+          (should knayawp--visit-display-entry)
+          (should (memq knayawp--visit-display-entry
+                        display-buffer-alist))
+          (should (eq 'knayawp--visit-from-side-window-p
+                      (car knayawp--visit-display-entry))))
+      (knayawp--remove-visit-routing))))
+
+(ert-deftest knayawp-test-install-visit-routing-idempotent ()
+  "Double install does not duplicate the entry."
+  (let ((display-buffer-alist nil)
+        (knayawp--visit-display-entry nil))
+    (unwind-protect
+        (progn
+          (knayawp--install-visit-routing)
+          (knayawp--install-visit-routing)
+          (should (= 1 (length display-buffer-alist))))
+      (knayawp--remove-visit-routing))))
+
+(ert-deftest knayawp-test-remove-visit-routing-clears-entry ()
+  "Remove takes the entry out of `display-buffer-alist'."
+  (let ((display-buffer-alist nil)
+        (knayawp--visit-display-entry nil))
+    (knayawp--install-visit-routing)
+    (knayawp--remove-visit-routing)
+    (should-not knayawp--visit-display-entry)
+    (should (null display-buffer-alist))))
+
+(ert-deftest knayawp-test-layout-setup-installs-visit-routing-when-managed ()
+  "`knayawp-layout-setup' installs visit routing for `managed-split'."
+  (let ((knayawp-side-pane-visit-style 'managed-split)
+        (knayawp--visit-display-entry nil)
+        (knayawp--active-layouts nil)
+        (knayawp--frame-widths nil)
+        (display-buffer-alist nil)
+        (window-sides-slots window-sides-slots)
+        (visit-installed 0))
+    (cl-letf (((symbol-function 'knayawp--project-root)
+               (lambda () "/fake/project/"))
+              ((symbol-function 'knayawp--project-name)
+               (lambda (_root) "project"))
+              ((symbol-function 'knayawp--create-panel-buffer)
+               (lambda (_type _root _name)
+                 (get-buffer-create "*knayawp-test-setup-visit*")))
+              ((symbol-function 'display-buffer-in-side-window)
+               (lambda (_buf _alist) (selected-window)))
+              ((symbol-function 'knayawp--balance-side-windows)
+               #'ignore)
+              ((symbol-function 'knayawp--setup-magit-integration)
+               #'ignore)
+              ((symbol-function 'knayawp--select-editor-window)
+               #'ignore)
+              ((symbol-function 'knayawp--install-visit-routing)
+               (lambda () (cl-incf visit-installed)))
+              ((symbol-function 'add-hook) #'ignore))
+      (knayawp-layout-setup))
+    (should (= 1 visit-installed))))
+
+(ert-deftest knayawp-test-layout-setup-skips-visit-routing-when-default ()
+  "`knayawp-layout-setup' skips visit routing when style is `default'."
+  (let ((knayawp-side-pane-visit-style 'default)
+        (knayawp--visit-display-entry nil)
+        (knayawp--active-layouts nil)
+        (knayawp--frame-widths nil)
+        (display-buffer-alist nil)
+        (window-sides-slots window-sides-slots)
+        (visit-installed 0))
+    (cl-letf (((symbol-function 'knayawp--project-root)
+               (lambda () "/fake/project/"))
+              ((symbol-function 'knayawp--project-name)
+               (lambda (_root) "project"))
+              ((symbol-function 'knayawp--create-panel-buffer)
+               (lambda (_type _root _name)
+                 (get-buffer-create "*knayawp-test-setup-default*")))
+              ((symbol-function 'display-buffer-in-side-window)
+               (lambda (_buf _alist) (selected-window)))
+              ((symbol-function 'knayawp--balance-side-windows)
+               #'ignore)
+              ((symbol-function 'knayawp--setup-magit-integration)
+               #'ignore)
+              ((symbol-function 'knayawp--select-editor-window)
+               #'ignore)
+              ((symbol-function 'knayawp--install-visit-routing)
+               (lambda () (cl-incf visit-installed)))
+              ((symbol-function 'add-hook) #'ignore))
+      (knayawp-layout-setup))
+    (should (= 0 visit-installed))))
+
+(ert-deftest knayawp-test-teardown-removes-visit-routing ()
+  "`knayawp-layout-teardown' calls `knayawp--remove-visit-routing'."
+  (let ((knayawp--visit-display-entry nil)
+        (knayawp--commit-pre-state nil)
+        (knayawp--frame-widths nil)
+        (knayawp--magit-saved-display-fn nil)
+        (knayawp--commit-display-entry nil)
+        (knayawp--process-display-entry nil)
+        (knayawp--commit-hooks-installed nil)
+        (display-buffer-alist nil)
+        (remove-called 0))
+    (cl-letf (((symbol-function 'knayawp--teardown-magit-integration)
+               #'ignore)
+              ((symbol-function 'knayawp--side-windows)
+               (lambda () nil))
+              ((symbol-function 'knayawp--remove-visit-routing)
+               (lambda () (cl-incf remove-called))))
+      (knayawp-layout-teardown))
+    (should (= 1 remove-called))))
+
 ;;; knayawp-test.el ends here
