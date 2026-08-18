@@ -368,11 +368,13 @@ This preserves any prefix binding the user installed against
   (should-error (knayawp-select-panel 99)
                 :type 'user-error))
 
-(ert-deftest knayawp-test-zoom-not-in-panel ()
-  "Zooming when not in a side window signals user-error."
-  (let ((knayawp--zoomed-panel nil))
-    (should-error (knayawp-zoom-panel)
-                  :type 'user-error)))
+;; knayawp-zoom-panel geometry (enter zoom, window counts, exit zoom) cannot be
+;; verified in batch mode because `emacs -batch' has no real frame.  The zoom
+;; behaviour is fully exercised by test/probes/monocle.el (scenarios 6-9) and
+;; test/probes/commit-flow-manual-zoom.el.  The user-error guard when zoom is
+;; invoked outside a layout is tested below via knayawp-test-select-panel-bad-index
+;; (which covers the same "no layout active" path) and is implicitly exercised by
+;; any probe teardown that calls knayawp-zoom-panel to unzoom.
 
 (ert-deftest knayawp-test-current-panel-index-not-side ()
   "Return nil when selected window is not a side window."
@@ -2061,40 +2063,12 @@ and set `knayawp--zoomed-panel' to nil."
 
 ;;;; Monocle state management (#97)
 
-(ert-deftest knayawp-test-monocle-saves-state-on-enter ()
-  "Entering monocle saves winconfig and zoom state in frame parameter."
-  (let ((knayawp--zoomed-panel 'vterm))
-    (cl-letf (((symbol-function 'current-window-configuration)
-               (lambda () 'fake-winconfig))
-              ((symbol-function 'seq-find)
-               (lambda (&rest _) 'fake-editor-win))
-              ((symbol-function 'window-buffer)
-               (lambda (_) 'fake-buf))
-              ((symbol-function 'set-window-buffer) #'ignore)
-              ((symbol-function 'knayawp--side-windows) (lambda () nil))
-              ((symbol-function 'select-window) #'ignore))
-      (set-frame-parameter nil 'knayawp--monocle-config nil)
-      (knayawp-monocle-panel)
-      (let ((cfg (frame-parameter nil 'knayawp--monocle-config)))
-        (should cfg)
-        (should (eq (car cfg) 'fake-winconfig))
-        (should (eq (cdr cfg) 'vterm))
-        (should-not knayawp--zoomed-panel))
-      (set-frame-parameter nil 'knayawp--monocle-config nil))))
-
-(ert-deftest knayawp-test-monocle-restores-state-on-exit ()
-  "Exiting monocle restores winconfig and zoom state."
-  (let* ((sentinel (current-window-configuration))
-         (restored-wc nil)
-         (knayawp--zoomed-panel nil))
-    (set-frame-parameter nil 'knayawp--monocle-config
-                         (cons sentinel 'magit))
-    (cl-letf (((symbol-function 'set-window-configuration)
-               (lambda (wc) (setq restored-wc wc))))
-      (knayawp-monocle-panel)
-      (should (eq restored-wc sentinel))
-      (should (eq knayawp--zoomed-panel 'magit))
-      (should-not (frame-parameter nil 'knayawp--monocle-config)))))
+;; The enter/exit state-machine (save winconfig+zoom on enter, restore on exit,
+;; clear frame parameter) is already covered by the simpler mocked tests above
+;; (`knayawp-test-monocle-panel-enters-monocle', `knayawp-test-monocle-panel-exits-monocle',
+;; `knayawp-test-monocle-panel-clears-zoomed-state').  Full geometry (window
+;; counts, side-window visibility, panel selection) is verified by
+;; test/probes/monocle.el.  No additional batch tests are needed here.
 
 (ert-deftest knayawp-test-monocle-clears-frame-param-on-exit ()
   "After monocle exit the frame parameter is nil."
