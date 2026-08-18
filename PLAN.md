@@ -280,6 +280,7 @@ Emacs 27+ `tab-bar-mode` is the natural fit — each tab can represent a project
 - [ ] feat: Emacs notification bridge for Claude vterm panel (alert.el integration) — #114
 - [ ] feat: direct vterm injection for send-to-Claude (requires prompt detection) — #116
 - [ ] kb: stub KB entries for filenotify overlay, Claude notification, send-to-Claude — #117
+- [ ] ci: integrate probe harness into CI/CD pipeline — #125
 
 ### v0.2.1 — Visual Navigation Bar
 - [ ] Customize `tab-bar-format` to show project names prominently
