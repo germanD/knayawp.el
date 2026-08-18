@@ -2,7 +2,7 @@
 
 ;;; Commentary:
 
-;; Three-scenario probe for property P1 (layout immunity).  Run via the
+;; Four-scenario probe for property P1 (layout immunity).  Run via the
 ;; suite (test/run-probes.sh) or individually:
 ;;   test/run-probe.sh test/probes/layout-immunity-p1.el
 ;;
@@ -11,9 +11,9 @@
 ;;
 ;; Scenario 1 — `delete-window' in the editor pane: with the editor pane
 ;;   selected, call `delete-window'; the editor window is gone, but all
-;;   three side windows must survive (because they carry
-;;   `no-delete-other-windows', `delete-window' on a non-side window does
-;;   not touch them).
+;;   three side windows must survive.  Side windows are a distinct category
+;;   of window in Emacs — `delete-window' on a non-side window never touches
+;;   them; this is stock Emacs behaviour, not a knayawp invariant.
 ;;
 ;; Scenario 2 — `split-window-horizontally' in the editor pane: call
 ;;   `split-window-horizontally' with the editor selected; the split creates
@@ -25,11 +25,19 @@
 ;;   must never land in a side window (the `no-other-window' parameter
 ;;   causes `other-window' to skip them).
 ;;
+;; Scenario 4 — `delete-other-windows' (C-x 1): call `delete-other-windows'
+;;   while the editor pane is selected; the side windows must survive because
+;;   they carry the `no-delete-other-windows' window parameter, which Emacs
+;;   honours by excluding them from the deletion sweep.  This is the primary
+;;   P1 immunity mechanism enforced by knayawp.
+;;
 ;; Note on window counts: `test/sandbox.el' opens a `*knayawp-sandbox*'
 ;; help window.  All total-window counts include it:
 ;;   Full layout: 3 panels + editor + sandbox helper = 5 windows.
 ;;   After editor delete (scenario 1): 3 panels + sandbox helper = 4 windows.
 ;;   After editor split (scenario 2): 3 panels + editor + split + helper = 6.
+;;   After delete-other-windows (scenario 4): 3 panels + editor = 4 windows
+;;     (the sandbox helper is a non-side window and is deleted by C-x 1).
 
 ;;; Code:
 
@@ -172,6 +180,40 @@
     (error (knayawp-probe-abort "s3 failed: %S" e)))
   (p1--teardown-layout))
 
+;;;; Scenario 4: delete-other-windows (C-x 1) leaves side windows intact
+
+(defun p1--scenario-4 ()
+  "Scenario 4 — `delete-other-windows' does not delete side windows."
+  (knayawp-probe-section
+   "SCENARIO 4 -- delete-other-windows (C-x 1) preserves side panels")
+  (condition-case e
+      (let ((default-directory (file-name-as-directory sandbox--test-dir)))
+        (p1--setup-layout)
+        ;; Verify the full layout before the deletion.
+        (knayawp-probe-check "s4-pre-side-wins" 3
+                             (p1--count-side-windows))
+        (knayawp-probe-check "s4-pre-total" 5
+                             (p1--count-windows))
+        ;; Select the editor pane and call delete-other-windows.
+        (p1--select-editor)
+        (knayawp-probe-check "s4-editor-selected" nil
+                             (window-parameter (selected-window) 'window-side))
+        (delete-other-windows)
+        (p1--settle)
+        (knayawp-probe-log "  post-C-x-1 windows: %S"
+                           (knayawp-probe-window-summary))
+        ;; All three side windows must still be present — the
+        ;; `no-delete-other-windows' parameter causes Emacs to exclude them
+        ;; from the deletion sweep.
+        (knayawp-probe-check "s4-side-wins-survive" 3
+                             (p1--count-side-windows))
+        ;; The editor pane remains; the sandbox helper (non-side, non-editor)
+        ;; is deleted.  Total: 3 panels + editor = 4.
+        (knayawp-probe-check "s4-post-total" 4
+                             (p1--count-windows)))
+    (error (knayawp-probe-abort "s4 failed: %S" e)))
+  (p1--teardown-layout))
+
 ;;;; Drive all scenarios
 
 (knayawp-probe-watchdog 90)
@@ -181,7 +223,8 @@
       (knayawp-probe-log "  probe start  default-directory=%S" default-directory)
       (p1--scenario-1)
       (p1--scenario-2)
-      (p1--scenario-3))
+      (p1--scenario-3)
+      (p1--scenario-4))
   (error (knayawp-probe-abort "top-level error: %S" e)))
 
 (knayawp-probe-finish)
