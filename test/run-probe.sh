@@ -37,6 +37,10 @@ cleanup() {
 }
 trap cleanup EXIT
 
+# Route the tmux socket through $TMPDIR so sandboxed environments (agents,
+# CI) can write it without needing /tmp/tmux-UID/ access.
+export TMUX_TMPDIR="${TMPDIR:-/tmp}"
+
 # Launch Emacs in a fixed-size detached tmux session.  sandbox.el sets up
 # the throwaway project + dependencies; probe-lib.el provides the
 # assertion harness; the probe drives the scenario and writes $RESULTS.
