@@ -371,10 +371,14 @@ This preserves any prefix binding the user installed against
 ;; knayawp-zoom-panel geometry (enter zoom, window counts, exit zoom) cannot be
 ;; verified in batch mode because `emacs -batch' has no real frame.  The zoom
 ;; behaviour is fully exercised by test/probes/monocle.el (scenarios 6-9) and
-;; test/probes/commit-flow-manual-zoom.el.  The user-error guard when zoom is
-;; invoked outside a layout is tested below via knayawp-test-select-panel-bad-index
-;; (which covers the same "no layout active" path) and is implicitly exercised by
-;; any probe teardown that calls knayawp-zoom-panel to unzoom.
+;; test/probes/commit-flow-manual-zoom.el.  The user-error guard (fires when the
+;; selected window is not a side window) is testable in batch and lives below.
+
+(ert-deftest knayawp-test-zoom-not-in-panel ()
+  "Zooming when not in a side window signals user-error."
+  (let ((knayawp--zoomed-panel nil))
+    (should-error (knayawp-zoom-panel)
+                  :type 'user-error)))
 
 (ert-deftest knayawp-test-current-panel-index-not-side ()
   "Return nil when selected window is not a side window."

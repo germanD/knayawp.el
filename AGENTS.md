@@ -357,8 +357,10 @@ Write an **ERT test** when the behaviour is pure logic:
 - Error signalling guards (`user-error` when no layout is active)
 - Customization `:set` callbacks
 
-A useful heuristic: if you must stub `window-list` or `delete-window` to avoid a crash
-in batch mode, the test is fighting batch mode — write a probe instead.
+A useful heuristic: write a probe when the **assertion itself** requires real frame
+geometry — side-window slot existence, live window counts after display-buffer calls,
+zoom layout, or monocle state. Stubs are a symptom, not the trigger; some ERT tests
+legitimately stub window functions while remaining meaningful in batch.
 
 ### File naming
 
@@ -408,7 +410,7 @@ Each scenario follows this pattern using helpers from `probe-lib.el`:
   (condition-case e
       (let ((default-directory (file-name-as-directory sandbox--test-dir)))
         ;; 1. Set up a fresh layout.
-        (myfeature--setup-layout)
+        (knayawp-probe-setup-layout)
         ;; 2. Drive the action under test.
         (knayawp-<command>)
         (sit-for 0.3)                    ; let timers settle
@@ -416,19 +418,33 @@ Each scenario follows this pattern using helpers from `probe-lib.el`:
         (knayawp-probe-check "label" expected-value actual-value)
         (knayawp-probe-assert-total-window-count 5 "full layout restored"))
     (error (knayawp-probe-abort "s1 failed: %S" e)))
-  (myfeature--teardown-layout))
+  (knayawp-probe-teardown-layout))
 ```
 
 Key `probe-lib.el` helpers:
 
-| Helper | What it checks |
-|--------|----------------|
+| Helper | What it checks / does |
+|--------|----------------------|
 | `knayawp-probe-check LABEL EXPECTED ACTUAL` | Generic equality check |
 | `knayawp-probe-assert-total-window-count N LABEL` | Total non-minibuffer windows |
 | `knayawp-probe-assert-side-window-count N LABEL` | Side windows only |
+| `knayawp-probe-assert-no-side-windows LABEL` | Assert zero side windows |
 | `knayawp-probe-assert-zoomed PANEL LABEL` | `knayawp--zoomed-panel` eq PANEL |
+| `knayawp-probe-assert-not-zoomed LABEL` | Assert `knayawp--zoomed-panel` is nil |
 | `knayawp-probe-assert-monocle-active LABEL` | Monocle frame parameter set |
+| `knayawp-probe-assert-monocle-inactive LABEL` | Assert monocle frame parameter is nil |
 | `knayawp-probe-assert-window-buf-at-slot SLOT RE LABEL` | Buffer at slot matches regexp |
+| `knayawp-probe-assert-selected-window-slot SLOT LABEL` | Selected window has SLOT |
+| `knayawp-probe-assert-selected-window-side SIDE LABEL` | Selected window has SIDE |
+| `knayawp-probe-assert-frame-param PARAM EXPECTED LABEL` | Frame parameter equals EXPECTED |
+| `knayawp-probe-assert-window-param WIN PARAM EXPECTED LABEL` | Window parameter equals EXPECTED |
+| `knayawp-probe-setup-layout &optional COMMIT-STYLE` | Enable mode, run layout setup, settle |
+| `knayawp-probe-teardown-layout` | Unzoom/unmonocle if needed, then teardown |
+| `knayawp-probe-select-slot SLOT` | Select side window at SLOT |
+| `knayawp-probe-side-windows` | Return list of side windows |
+| `knayawp-probe-window-summary` | Return `(BUF SIDE SLOT)` list for all windows |
+| `knayawp-probe-drive-commit MID-FN DONE-FN &optional KICKOFF-FN` | Drive async commit unattended |
+| `knayawp-probe-stage-and-commit` | Default commit kickoff (edit + stage + create) |
 | `knayawp-probe-section NAME` | Print a section header |
 | `knayawp-probe-log FMT &rest ARGS` | Print a free-form log line |
 | `knayawp-probe-abort FMT &rest ARGS` | Mark run INCOMPLETE and exit |
