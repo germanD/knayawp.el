@@ -33,9 +33,13 @@
 ;;
 ;; Note on window counts: `test/sandbox.el' opens a `*knayawp-sandbox*'
 ;; help window.  All total-window counts include it:
-;;   Full layout: 3 panels + editor + sandbox helper = 5 windows.
+;;   Full layout (scenario 1): 3 panels + editor + sandbox helper = 5 windows.
 ;;   After editor delete (scenario 1): 3 panels + sandbox helper = 4 windows.
-;;   After editor split (scenario 2): 3 panels + editor + split + helper = 6.
+;;   After teardown+setup (scenario 2): the sandbox helper is gone because
+;;     scenario 1 called `delete-window' on the editor, which consumed the
+;;     helper into the remaining non-side area.  After teardown the editor
+;;     is restored without the helper, so scenario 2 pre-split = 4 (3 panels
+;;     + editor), and post-split = 5 (3 panels + editor + new split).
 ;;   After delete-other-windows (scenario 4): 3 panels + editor = 4 windows
 ;;     (the sandbox helper is a non-side window and is deleted by C-x 1).
 
@@ -126,7 +130,10 @@
         ;; Verify full layout.
         (knayawp-probe-check "s2-pre-side-wins" 3
                              (p1--count-side-windows))
-        (knayawp-probe-check "s2-pre-total" 5
+        ;; The sandbox helper was eliminated in scenario 1 (delete-window on
+        ;; the editor collapsed the two-window non-side area into one).  After
+        ;; teardown + re-setup, only the editor + 3 panels remain: 4 total.
+        (knayawp-probe-check "s2-pre-total" 4
                              (p1--count-windows))
         ;; Split the editor pane horizontally.
         (p1--select-editor)
@@ -137,8 +144,8 @@
         ;; Side panel count must be unchanged.
         (knayawp-probe-check "s2-side-wins-unchanged" 3
                              (p1--count-side-windows))
-        ;; Total is now 6: 3 panels + editor + new split + sandbox helper.
-        (knayawp-probe-check "s2-post-total" 6
+        ;; Total is now 5: 3 panels + editor + new split (no sandbox helper).
+        (knayawp-probe-check "s2-post-total" 5
                              (p1--count-windows)))
     (error (knayawp-probe-abort "s2 failed: %S" e)))
   (p1--teardown-layout))
