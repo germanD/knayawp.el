@@ -335,6 +335,155 @@ Before considering any task done:
 - If no test file exists yet, note this.
 - For window-management code that can't be batch-tested, note what needs manual verification.
 
+## Writing Probes
+
+`emacs -batch` has no real frame geometry, so any test that depends on side-window
+creation, slot visibility, zoom layout, or monocle state cannot be verified by ERT.
+That boundary is the trigger for writing a probe.
+
+### When to write a probe (vs. an ERT test)
+
+Write a **probe** when the behaviour under test involves:
+- Real side-window creation (`display-buffer-in-side-window`, slot counts)
+- Frame geometry (window widths, heights after resize)
+- Zoom or monocle layout changes (`knayawp-zoom-panel`, `knayawp-monocle-panel`)
+- Panel focus after an async flow (commit zoom, fixup flow)
+- Anything that requires `(sit-for …)` to let timers and redraws settle
+
+Write an **ERT test** when the behaviour is pure logic:
+- Accessor functions (`knayawp--panel-slot`, `knayawp--panel-type`)
+- Hook installation/removal
+- `display-buffer-alist` entry management
+- Error signalling guards (`user-error` when no layout is active)
+- Customization `:set` callbacks
+
+A useful heuristic: if you must stub `window-list` or `delete-window` to avoid a crash
+in batch mode, the test is fighting batch mode — write a probe instead.
+
+### File naming
+
+Probes live in `test/probes/<feature>.el`. Name the file after the feature or command
+under test, not the issue number. Examples:
+
+```
+test/probes/monocle.el          — knayawp-monocle-panel scenarios
+test/probes/copy-mode-toggle.el — knayawp-terminal-copy-mode toggle
+test/probes/commit-flow-*.el    — commit zoom flow variants
+```
+
+### Required file header
+
+Every probe must start with the standard Emacs Lisp file header followed by a
+Commentary section that lists each scenario concisely. Include a window-count note
+when the sandbox helper window affects totals (it always adds 1).
+
+```elisp
+;;; <feature>.el --- Probe for <command/feature> -*- lexical-binding: t; -*-
+
+;;; Commentary:
+
+;; N-scenario probe for `knayawp-<command>'.  Run via:
+;;   test/run-probe.sh test/probes/<feature>.el
+;;
+;; Scenario 1 — <one-line description of setup and assertion>
+;; ...
+;;
+;; Note on window counts: `test/sandbox.el' opens a `*knayawp-sandbox*'
+;; help window.  Full layout: 3 panels + editor + sandbox helper = 5 windows.
+
+;;; Code:
+```
+
+There is no separate `Probe-Geometry` header — the geometry note goes in the Commentary
+and the frame size is passed at the command line (default `200x50`).
+
+### Structuring scenarios
+
+Each scenario follows this pattern using helpers from `probe-lib.el`:
+
+```elisp
+(defun myfeature--scenario-1 ()
+  "Scenario 1 — description."
+  (knayawp-probe-section "SCENARIO 1 -- description")
+  (condition-case e
+      (let ((default-directory (file-name-as-directory sandbox--test-dir)))
+        ;; 1. Set up a fresh layout.
+        (myfeature--setup-layout)
+        ;; 2. Drive the action under test.
+        (knayawp-<command>)
+        (sit-for 0.3)                    ; let timers settle
+        ;; 3. Assert outcomes.
+        (knayawp-probe-check "label" expected-value actual-value)
+        (knayawp-probe-assert-total-window-count 5 "full layout restored"))
+    (error (knayawp-probe-abort "s1 failed: %S" e)))
+  (myfeature--teardown-layout))
+```
+
+Key `probe-lib.el` helpers:
+
+| Helper | What it checks |
+|--------|----------------|
+| `knayawp-probe-check LABEL EXPECTED ACTUAL` | Generic equality check |
+| `knayawp-probe-assert-total-window-count N LABEL` | Total non-minibuffer windows |
+| `knayawp-probe-assert-side-window-count N LABEL` | Side windows only |
+| `knayawp-probe-assert-zoomed PANEL LABEL` | `knayawp--zoomed-panel` eq PANEL |
+| `knayawp-probe-assert-monocle-active LABEL` | Monocle frame parameter set |
+| `knayawp-probe-assert-window-buf-at-slot SLOT RE LABEL` | Buffer at slot matches regexp |
+| `knayawp-probe-section NAME` | Print a section header |
+| `knayawp-probe-log FMT &rest ARGS` | Print a free-form log line |
+| `knayawp-probe-abort FMT &rest ARGS` | Mark run INCOMPLETE and exit |
+| `knayawp-probe-finish` | Write report and exit Emacs |
+| `knayawp-probe-watchdog SECONDS` | Kill Emacs after SECONDS if not done |
+
+### PASS/FAIL reporting
+
+The harness accumulates all `knayawp-probe-check` results and writes a report to the
+results file. The final `STATUS:` line is one of:
+
+- `STATUS: GREEN` — all checks passed
+- `STATUS: RED` — one or more checks failed
+- `STATUS: INCOMPLETE` — watchdog fired or `knayawp-probe-abort` was called
+
+Each check prints `[PASS]` or `[FAIL]` with `expected=` and `actual=` values on one line.
+
+### How to run
+
+```bash
+# Single probe, default geometry (200x50):
+cd /path/to/knayawp.el
+bash test/run-probe.sh test/probes/<feature>.el
+
+# Custom geometry:
+bash test/run-probe.sh test/probes/<feature>.el 220x55
+```
+
+The script launches `emacs -nw` in a detached tmux session at the requested size, waits
+up to 90 seconds for the results file, prints the report, and exits non-zero if the
+results file is missing or the `STATUS:` line is not `GREEN`.
+
+### What to include in the PR body
+
+When a PR adds or modifies a probe, paste the full `run-probe.sh` output under a
+collapsible block in the PR description:
+
+```markdown
+<details>
+<summary>Probe output — feature.el (200x50) — STATUS: GREEN</summary>
+
+===== PROBE: feature.el  geom=200x50 =====
+SCENARIO 1 -- description
+  [PASS] label                    expected=5 actual=5
+  ...
+RESULT: N passed, 0 failed
+STATUS: GREEN
+
+</details>
+```
+
+A `STATUS: GREEN` result from `run-probe.sh` is the primary evidence of correctness for
+interactive window-management changes. Omitting it requires an explicit justification in
+the PR body (e.g. "covered by existing `monocle.el` probe").
+
 ### pmo
 
 **When to use:** Project administration — milestone close, new-issue PLAN.md sync, release prep, KB health checks.
