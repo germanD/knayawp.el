@@ -227,6 +227,8 @@ Resolved design decisions:
 - [ ] ERT: fix two misplaced tests (zoom batch trivially passes; monocle mocks overcomplicated) — #108
 - [ ] docs: Claude Code Notification hook to get OS alerts when Claude waits for input — #113
 - [ ] feat: send editor selection to Claude vterm panel as context reference — #115
+- [ ] fix: pass C-g and C-x through to Claude TUI in vterm/eat panels — #120
+- [ ] feat: C-g in Claude panel opens prompt editor as Emacs buffer in editor pane — #121
 
 ---
 
