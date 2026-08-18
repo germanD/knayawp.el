@@ -51,10 +51,13 @@ Long-term Emacs users (not necessarily "power users") who:
 
 **Keymap styles** — `knayawp-keymap-style` selects the key layout used when building `knayawp-command-map`:
 - `default` (historical): numbered keys 1/2/3 and `n`/`p` for next/previous panel.
+  `S-<up>`/`S-<down>`/`S-<left>`/`S-<right>` are unbound and reserved for panel resize (v0.3).
 - `tmux`: adds `<up>`/`<down>` for previous/next panel on top of the default bindings.
   `<left>`/`<right>` are reserved for project-tab navigation (v0.2).
+  `S-<up>`/`S-<down>`/`S-<left>`/`S-<right>` are unbound and reserved for panel resize (v0.3).
 - `byobu`: adds `S-<up>`/`S-<down>` for previous/next panel.
   `S-<left>`/`S-<right>` reserved for v0.2.
+  **Note:** `byobu` style has a conflict with the planned panel-resize bindings (#119) — `S-<up>`/`S-<down>` are already used for panel cycling. This must be resolved (new style variant or key reassignment) before v0.3 resize work lands.
 
 All three styles bind the same command surface; they differ only in the supplementary arrow-key bindings. Changing the style at runtime takes effect after calling `knayawp-rebuild-command-map`.
 

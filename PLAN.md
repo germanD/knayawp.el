@@ -254,6 +254,7 @@ and the final keymap flip as the release gate.
 - [ ] Add `knayawp-layout-auto-select-flag` and `knayawp-narrow-threshold-columns` defcustoms — #73
 - [ ] Deprecate `knayawp-next-panel` / `knayawp-prev-panel` via `make-obsolete`; document upcoming flip — #74
 - [ ] Flip `n`/`p` in `knayawp-command-map` to intra-pane window cycling; document migration — #75
+- [ ] feat: panel resize keybindings (S-arrow grow/shrink, l reset) — #119
 
 ---
 
