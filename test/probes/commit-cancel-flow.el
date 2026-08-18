@@ -35,9 +35,8 @@
 (require 'seq)
 
 ;; `with-editor-cancel' is called at runtime after with-editor loads.
+;; `magit-run-git' and `magit-commit-create' are declared in probe-lib.el.
 (declare-function with-editor-cancel "with-editor")
-(declare-function magit-run-git "magit-process")
-(declare-function magit-commit-create "magit-commit")
 
 ;;;; Local cancel driver
 ;;
@@ -137,44 +136,6 @@
     (knayawp-probe-check "s1b-commit-win-live" t (and (window-live-p win) t))
     (knayawp-probe-check "s1b-commit-in-side" 'right side)))
 
-(defun commit-cancel--scenario-1-done ()
-  "Probe C for scenario 1 — state after cancel."
-  (knayawp-probe-section "PROBE C -- post-cancel state")
-  (knayawp-probe-log "  windows: %S" (knayawp-probe-window-summary))
-  ;; Commit state must be cleared.
-  (knayawp-probe-check "s1c-commit-flow-gone" nil
-                       (knayawp--commit-flow-active-p))
-  (knayawp-probe-check "s1c-commit-pre-state-nil" nil
-                       knayawp--commit-pre-state)
-  ;; Full 3-panel layout restored.
-  (knayawp-probe-check "s1c-side-wins" 3
-                       (commit-cancel--count-side-windows))
-  ;; Focus lands in a non-side window (focus-after = `editor').
-  (knayawp-probe-check "s1c-focus-not-side" nil
-                       (window-parameter (selected-window) 'window-side))
-  ;; COMMIT_EDITMSG buffer must be gone.
-  (knayawp-probe-check "s1c-commit-buf-gone" nil
-                       (and (get-buffer "COMMIT_EDITMSG") t))
-  (knayawp-probe-finish))
-
-(defun commit-cancel--scenario-1 ()
-  "Scenario 1 — cancel restores layout and clears commit state."
-  (knayawp-probe-section "SCENARIO 1 -- commit-cancel restores layout")
-  (condition-case e
-      (progn
-        (commit-cancel--setup-layout)
-        (knayawp-probe-section "PROBE A -- post-setup state")
-        (knayawp-probe-check "s1a-mode-on" t knayawp-mode)
-        (knayawp-probe-check "s1a-style" 'zoom knayawp-magit-commit-style)
-        (knayawp-probe-check "s1a-hooks-installed" t
-                             knayawp--commit-hooks-installed)
-        (knayawp-probe-check "s1a-side-wins" 3
-                             (commit-cancel--count-side-windows))
-        ;; Drive commit → cancel → done-check (done-fn calls probe-finish).
-        (commit-cancel--drive
-         #'commit-cancel--scenario-1-mid
-         #'commit-cancel--scenario-1-done))
-    (error (knayawp-probe-abort "s1 setup failed: %S" e))))
 
 ;;;; Scenario 2: cancel when editor pane had a specific file open
 
@@ -223,32 +184,14 @@
 
 ;;;; Drive all scenarios
 ;;
-;; Each scenario is async and calls `knayawp-probe-finish' from its done-fn.
-;; Scenario 2 is driven only after scenario 1 finishes (probe-finish kills
-;; Emacs via a timer), so only scenario 1 is started here.  Scenario 2 is a
-;; standalone run; run both from the test suite sequentially or run them
-;; individually.
-;;
-;; Because `knayawp-probe-finish' is idempotent and kills Emacs via a 0.1s
-;; timer, and because each scenario starts only after the previous one sets
-;; up a fresh layout, the two-scenario sequence is chained by running
-;; scenario 2 from scenario 1's done-fn via a post-finish hook trick.
-;;
-;; A simpler approach: run a single scenario per probe invocation and rely on
-;; `test/run-probes.sh' for the suite.  That is what the existing multi-file
-;; commit-flow probes do.  This probe therefore drives both scenarios by
-;; resetting the probe state between them.
+;; Both scenarios are async.  Scenario 1 is started by the top-level
+;; `condition-case' form below.  Its done-fn is `commit-cancel--chain-scenario-2'
+;; rather than `knayawp-probe-finish'; that function runs the post-cancel
+;; assertions for scenario 1, tears down the layout, then calls
+;; `commit-cancel--scenario-2' directly.  Scenario 2's done-fn calls
+;; `knayawp-probe-finish', which writes the report and exits Emacs.
 
 (knayawp-probe-watchdog 90)
-
-;; Scenario 1 is async; scenario 2 is chained via post-cancel hook after s1
-;; completes.  We use a single-run approach: each scenario is self-contained
-;; and drives itself to knayawp-probe-finish.  To run both we reset the
-;; finished flag between them.
-;;
-;; Reset approach: run s1, wait, reset flag, run s2.  But probe-finish is
-;; idempotent and kills Emacs after 0.1s — so only one scenario per probe
-;; file when async.  The practical approach is to chain s2 from s1's done-fn.
 
 ;; Override the done-fn for scenario 1 to chain scenario 2 instead of
 ;; calling probe-finish directly.

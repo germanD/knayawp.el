@@ -2,7 +2,7 @@
 
 ;;; Commentary:
 
-;; Two-scenario probe for the `knayawp-magit-commit-focus-after' defcustom.
+;; Three-scenario probe for the `knayawp-magit-commit-focus-after' defcustom.
 ;; Run via the suite (test/run-probes.sh) or individually:
 ;;   test/run-probe.sh test/probes/commit-focus-after.el
 ;;
@@ -23,6 +23,12 @@
 ;;   that window is the editor pane, but the key thing verified is that
 ;;   the focus-after machinery used the `:pre-commit-window' value (i.e.,
 ;;   the magit slot is NOT selected, confirming `magit' branch was not taken).
+;;
+;; Scenario 3 — value `editor' (the default): after `with-editor-finish',
+;;   focus must land on the non-side editor window.  This is distinct from
+;;   `previous' (which uses the captured `:pre-commit-window'); `editor'
+;;   selects the first non-side window in the frame regardless of what was
+;;   selected before the commit.
 ;;
 ;; Note on window counts: `test/sandbox.el' opens a `*knayawp-sandbox*'
 ;; help window.  All total-window counts include it:
@@ -128,7 +134,8 @@
                        (not (eql -1 (window-parameter (selected-window)
                                                       'window-slot))))
   (cfa--teardown-layout)
-  (knayawp-probe-finish))
+  ;; Chain scenario 3.
+  (cfa--scenario-3))
 
 (defun cfa--scenario-2 ()
   "Scenario 2 — focus-after `previous' returns to pre-commit window."
@@ -170,6 +177,61 @@
          #'cfa--scenario-1-mid
          #'cfa--scenario-1-done))
     (error (knayawp-probe-abort "s1 setup failed: %S" e))))
+
+;;;; Scenario 3: focus-after `editor' — lands in the non-side editor window
+
+(defun cfa--scenario-3-mid ()
+  "Probe B — mid-commit, before finish, focus-after=`editor'."
+  (knayawp-probe-section "PROBE B -- mid-commit (focus-after=editor)")
+  (knayawp-probe-log "  windows: %S" (knayawp-probe-window-summary))
+  (knayawp-probe-check "s3b-commit-flow-active" t
+                       (knayawp--commit-flow-active-p))
+  (knayawp-probe-check "s3b-focus-after" 'editor
+                       knayawp-magit-commit-focus-after))
+
+(defun cfa--scenario-3-done ()
+  "Probe C — post-finish, selected window should be the editor pane."
+  (knayawp-probe-section "PROBE C -- post-finish (focus-after=editor)")
+  (knayawp-probe-log "  windows: %S" (knayawp-probe-window-summary))
+  ;; Commit state cleared.
+  (knayawp-probe-check "s3c-flow-gone" nil
+                       (knayawp--commit-flow-active-p))
+  ;; Full layout restored.
+  (knayawp-probe-check "s3c-side-wins" 3
+                       (cfa--count-side-windows))
+  ;; With `editor', focus must land in a non-side window.
+  (knayawp-probe-check "s3c-focus-not-side" nil
+                       (window-parameter (selected-window) 'window-side))
+  ;; Confirm the selected window is NOT the magit slot.
+  (knayawp-probe-check "s3c-not-magit-slot" t
+                       (not (eql -1 (window-parameter (selected-window)
+                                                      'window-slot))))
+  (cfa--teardown-layout)
+  (knayawp-probe-finish))
+
+(defun cfa--scenario-3 ()
+  "Scenario 3 — focus-after `editor' selects the non-side editor window."
+  (knayawp-probe-section "SCENARIO 3 -- focus-after=editor")
+  (condition-case e
+      (progn
+        (cfa--setup-layout 'editor)
+        ;; Start from the magit slot to confirm `editor' doesn't just
+        ;; restore the previously selected window (that would be `previous').
+        (let ((magit-spec (assq 'magit knayawp-panels)))
+          (when magit-spec
+            (let ((magit-win (knayawp--side-window-for-slot
+                              (knayawp--panel-slot magit-spec))))
+              (when (window-live-p magit-win)
+                (select-window magit-win)))))
+        (knayawp-probe-section "PROBE A -- post-setup state")
+        (knayawp-probe-check "s3a-focus-after" 'editor
+                             knayawp-magit-commit-focus-after)
+        (knayawp-probe-check "s3a-side-wins" 3
+                             (cfa--count-side-windows))
+        (knayawp-probe-drive-commit
+         #'cfa--scenario-3-mid
+         #'cfa--scenario-3-done))
+    (error (knayawp-probe-abort "s3 setup failed: %S" e))))
 
 ;;;; Drive all scenarios
 
