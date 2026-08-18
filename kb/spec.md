@@ -211,6 +211,7 @@ that fires on these occasions. Wire it to a system-level notification command vi
 {
   "hooks": {
     "Notification": [{
+      "matcher": "",
       "hooks": [{
         "type": "command",
         "command": "notify-send 'Claude Code' 'Waiting for input' 2>/dev/null || osascript -e 'display notification \"Waiting\" with title \"Claude Code\"'"
