@@ -48,11 +48,14 @@
 (defvar vterm-buffer-name)
 (declare-function vterm-mode "vterm")
 (declare-function vterm-copy-mode "vterm")
+(defvar vterm-copy-mode)
 (declare-function vterm-yank "vterm")
 (defvar eat-buffer-name)
 (declare-function eat "eat")
 (declare-function eat-emacs-mode "eat")
+(declare-function eat-semi-char-mode "eat")
 (declare-function eat-send-string "eat")
+(defvar eat--input-mode)
 (declare-function magit-status-setup-buffer "magit-status")
 (defvar magit-display-buffer-function)
 (declare-function magit-display-buffer-traditional "magit-mode")
@@ -563,14 +566,16 @@ If COMMAND is non-nil, run it instead of the default shell."
 ;;;; Terminal copy/paste dispatch
 
 (defun knayawp--make-terminal-copy-mode-vterm (window)
-  "Enter vterm copy mode in WINDOW."
+  "Toggle vterm copy mode in WINDOW."
   (with-selected-window window
-    (vterm-copy-mode 1)))
+    (vterm-copy-mode (if vterm-copy-mode -1 1))))
 
 (defun knayawp--make-terminal-copy-mode-eat (window)
-  "Enter eat Emacs mode in WINDOW, allowing text selection."
+  "Toggle eat between Emacs mode and semi-char mode in WINDOW."
   (with-selected-window window
-    (eat-emacs-mode)))
+    (if (and (boundp 'eat--input-mode) (eq eat--input-mode :emacs))
+        (eat-semi-char-mode)
+      (eat-emacs-mode))))
 
 (defun knayawp--make-terminal-yank-vterm (window)
   "Yank `kill-ring' head into vterm WINDOW."
@@ -610,11 +615,12 @@ Signal `user-error' when no terminal panel window exists."
 ;;;; One-shot terminal copy/paste commands
 
 (defun knayawp-terminal-copy-mode ()
-  "Enter copy/scroll mode in the active terminal panel.
-Selects the panel window and activates the backend's copy mode:
-`vterm-copy-mode' for vterm, `eat-emacs-mode' for eat.  In copy
-mode, standard Emacs motion and region commands work so the user
-can select text and copy it to the kill ring."
+  "Toggle copy/scroll mode in the active terminal panel.
+Selects the panel window and toggles the backend's copy mode:
+`vterm-copy-mode' for vterm, `eat-emacs-mode'/`eat-semi-char-mode'
+for eat.  In copy mode, standard Emacs motion and region commands
+work so the user can select text and copy it to the kill ring.
+Calling again exits copy mode and restores normal terminal input."
   (interactive)
   (let ((win (knayawp--active-terminal-window)))
     (select-window win)
