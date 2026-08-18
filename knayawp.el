@@ -54,7 +54,8 @@
                   (key &optional shift meta ctrl accept-proc-output))
 (declare-function vterm--self-insert "vterm" ())
 (defvar eat-buffer-name)
-(defvar eat-terminal)
+(defvar eat-terminal nil
+  "The eat terminal object for the current buffer (eat internal).")
 (declare-function eat "eat")
 (declare-function eat-emacs-mode "eat")
 (declare-function eat-semi-char-mode "eat")
@@ -570,7 +571,7 @@ If COMMAND is non-nil, run it instead of the default shell."
 
 ;;;; Claude keymap overlays
 
-(defun knayawp--setup-claude-keymap-vterm (buf)
+(defun knayawp--make-terminal-setup-claude-keymap-vterm (buf)
   "Install a Claude-aware keymap overlay in vterm buffer BUF.
 Overrides the quit key to send ESC (Claude's prompt-editor
 shortcut) and the prefix key to pass the raw byte through instead
@@ -579,26 +580,27 @@ of triggering the Emacs prefix map."
     (let ((map (make-sparse-keymap)))
       (set-keymap-parent map (current-local-map))
       (define-key map (kbd "C-g")
-                  (lambda () (interactive) (vterm-send-key "\e")))
+                  (lambda () (interactive) (vterm-send-key "<escape>")))
       (define-key map (kbd "C-x") #'vterm--self-insert)
       (use-local-map map))))
 
-(defun knayawp--setup-claude-keymap-eat (buf)
+(defun knayawp--make-terminal-setup-claude-keymap-eat (buf)
   "Install a Claude-aware keymap overlay in eat buffer BUF.
 Overrides the quit key to send ESC (Claude's prompt-editor
 shortcut) and the prefix key to pass the raw byte through to the
 process."
   (with-current-buffer buf
-    (let ((map (make-sparse-keymap)))
+    (let* ((map (make-sparse-keymap))
+           (term eat-terminal))
       (set-keymap-parent map (current-local-map))
       (define-key map (kbd "C-g")
                   (lambda ()
                     (interactive)
-                    (eat-term-send-string eat-terminal "\e")))
+                    (eat-term-send-string term "\e")))
       (define-key map (kbd "C-x")
                   (lambda ()
                     (interactive)
-                    (eat-term-send-string eat-terminal "\C-x")))
+                    (eat-term-send-string term "\C-x")))
       (use-local-map map))))
 
 ;;;; Terminal copy/paste dispatch
@@ -729,8 +731,8 @@ PROJECT-NAME is used for the buffer name.  Create one via
         (let ((buf (knayawp--make-terminal buf-name project-root
                                            knayawp-claude-command)))
           (pcase knayawp-terminal-backend
-            ('vterm (knayawp--setup-claude-keymap-vterm buf))
-            ('eat   (knayawp--setup-claude-keymap-eat buf)))
+            ('vterm (knayawp--make-terminal-setup-claude-keymap-vterm buf))
+            ('eat   (knayawp--make-terminal-setup-claude-keymap-eat buf)))
           buf))))
 
 ;;;; Buffer-to-panel dispatch
