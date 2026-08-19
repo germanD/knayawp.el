@@ -46,6 +46,7 @@
 ;; These are only called after their respective `require' succeeds.
 (defvar vterm-shell)
 (defvar vterm-buffer-name)
+(defvar vterm-environment)
 (declare-function vterm-mode "vterm")
 (declare-function vterm-copy-mode "vterm")
 (defvar vterm-copy-mode)
@@ -73,6 +74,7 @@
 (defvar magit-log-select-pick-hook)
 (defvar magit-log-select-quit-hook)
 (declare-function magit-mode-get-buffer "magit-mode")
+(declare-function server-running-p "server")
 
 ;;;; Customization group
 
@@ -126,6 +128,15 @@ non-nil maps to `editor' and nil maps to `off'."
  "Use `knayawp-magit-commit-style' instead.
 Mapping: t -> `editor', nil -> `off'."
  "0.1.4")
+
+(defcustom knayawp-claude-editor-flag t
+  "Non-nil means use Emacs as the editor for Claude Code prompts.
+Injects EDITOR=emacsclient into the Claude terminal environment so
+that Claude's edit-prompt action (its built-in prompt editor key)
+opens the file in the editor pane.  Requires an Emacs server to be
+running."
+  :type 'boolean
+  :group 'knayawp)
 
 (defcustom knayawp-magit-commit-style 'zoom
   "Strategy for displaying magit commit-message buffers.
@@ -495,6 +506,11 @@ Set by `knayawp--install-fixup-hooks', cleared by
   "The `display-buffer-alist' entry added for side-pane visit routing.
 Stored for precise removal.")
 
+(defvar knayawp--claude-editor-hook-installed nil
+  "Non-nil when `knayawp--claude-editor-server-switch' is on `server-switch-hook'.
+Set by `knayawp--install-claude-editor-hook', cleared by
+`knayawp--remove-claude-editor-hook' so install/remove are idempotent.")
+
 ;;;; Project detection
 
 (defun knayawp--project-root ()
@@ -531,38 +547,50 @@ Format: *knayawp-TYPE-PROJECT-NAME*."
 
 ;;;; Terminal backend dispatch
 
-(defun knayawp--make-terminal (name directory &optional command)
+(defun knayawp--make-terminal (name directory &optional command env-vars)
   "Create a terminal buffer NAME in DIRECTORY.
 If COMMAND is non-nil, run it instead of the default shell.
+ENV-VARS is an optional list of \"VAR=VALUE\" strings prepended to
+the process environment before the terminal is started.
 Dispatch to the backend selected by `knayawp-terminal-backend'."
   (let ((default-directory (file-name-as-directory directory)))
     (pcase knayawp-terminal-backend
-      ('vterm (knayawp--make-terminal-vterm name directory command))
-      ('eat (knayawp--make-terminal-eat name directory command))
+      ('vterm (knayawp--make-terminal-vterm name directory command env-vars))
+      ('eat (knayawp--make-terminal-eat name directory command env-vars))
       (_ (user-error "Unknown terminal backend: %s"
                      knayawp-terminal-backend)))))
 
-(defun knayawp--make-terminal-vterm (name directory &optional command)
+(defun knayawp--make-terminal-vterm (name directory &optional command env-vars)
   "Create a vterm buffer named NAME in DIRECTORY.
-If COMMAND is non-nil, run it instead of the default shell."
+If COMMAND is non-nil, run it instead of the default shell.
+ENV-VARS is an optional list of \"VAR=VALUE\" strings prepended to
+`vterm-environment' before the terminal process starts."
   (unless (require 'vterm nil t)
     (user-error "Package vterm is not installed"))
   (let* ((default-directory (file-name-as-directory directory))
          (vterm-shell (or command vterm-shell))
          (vterm-buffer-name name)
+         ;; Prepend caller-supplied env vars before vterm-mode is
+         ;; called; vterm reads vterm-environment at startup time.
+         (vterm-environment (append env-vars vterm-environment))
          (buf (get-buffer-create name)))
     (with-current-buffer buf
       (unless (derived-mode-p 'vterm-mode)
         (vterm-mode)))
     buf))
 
-(defun knayawp--make-terminal-eat (name directory &optional command)
+(defun knayawp--make-terminal-eat (name directory &optional command env-vars)
   "Create an eat buffer named NAME in DIRECTORY.
-If COMMAND is non-nil, run it instead of the default shell."
+If COMMAND is non-nil, run it instead of the default shell.
+ENV-VARS is an optional list of \"VAR=VALUE\" strings prepended to
+`process-environment' before the eat process starts."
   (unless (require 'eat nil t)
     (user-error "Package eat is not installed"))
   (let* ((default-directory (file-name-as-directory directory))
-         (eat-buffer-name name))
+         (eat-buffer-name name)
+         ;; Prepend caller-supplied env vars; eat reads
+         ;; process-environment when it spawns the subprocess.
+         (process-environment (append env-vars process-environment)))
     (save-window-excursion
       (if command
           (eat command)
@@ -725,11 +753,25 @@ Create one via `knayawp--make-terminal' if needed."
 (defun knayawp--get-or-create-claude-buffer (project-root project-name)
   "Return a Claude Code buffer for PROJECT-ROOT.
 PROJECT-NAME is used for the buffer name.  Create one via
-`knayawp--make-terminal' with `knayawp-claude-command'."
+`knayawp--make-terminal' with `knayawp-claude-command'.
+When `knayawp-claude-editor-flag' is non-nil and an Emacs server
+is running, EDITOR=emacsclient is injected into the terminal
+process environment so Claude's edit-prompt flow opens the temp
+file via `emacsclient', which our `server-switch-hook' handler
+then routes to the editor pane."
   (let ((buf-name (knayawp--buffer-name 'claude project-name)))
     (or (get-buffer buf-name)
-        (let ((buf (knayawp--make-terminal buf-name project-root
-                                           knayawp-claude-command)))
+        (let* ((env-vars
+                (when knayawp-claude-editor-flag
+                  (if (server-running-p)
+                      (when-let* ((ec (executable-find "emacsclient")))
+                        (list (concat "EDITOR=" ec)))
+                    (message "knayawp: no Emacs server running; \
+Claude editor integration disabled")
+                    nil)))
+               (buf (knayawp--make-terminal buf-name project-root
+                                            knayawp-claude-command
+                                            env-vars)))
           (pcase knayawp-terminal-backend
             ('vterm (knayawp--make-terminal-setup-claude-keymap-vterm buf))
             ('eat   (knayawp--make-terminal-setup-claude-keymap-eat buf)))
@@ -1393,6 +1435,9 @@ require knayawp-layout-teardown first"))
               (nreverse buffer-alist))
         ;; Install magit integration
         (knayawp--setup-magit-integration)
+        ;; Install Claude editor hook when the flag is enabled.
+        (when knayawp-claude-editor-flag
+          (knayawp--install-claude-editor-hook))
         ;; Install side-pane visit routing when the style requests it.
         (when (eq knayawp-side-pane-visit-style 'managed-split)
           (knayawp--install-visit-routing))
@@ -1443,6 +1488,7 @@ can restore the layout."
              (fboundp 'winner-save-conditionally))
     (winner-save-conditionally))
   (knayawp--teardown-magit-integration)
+  (knayawp--remove-claude-editor-hook)
   (knayawp--remove-visit-routing)
   (let ((side-windows (knayawp--side-windows)))
     (dolist (win side-windows)
@@ -1873,6 +1919,51 @@ recorded entry from `display-buffer-alist' and clear
   (dolist (entry knayawp--panel-display-entries)
     (setq display-buffer-alist (delq entry display-buffer-alist)))
   (setq knayawp--panel-display-entries nil))
+
+;;;; Claude editor integration (#121)
+
+(defun knayawp--claude-editor-server-switch ()
+  "Route emacsclient-opened files to the editor pane for Claude.
+Added to `server-switch-hook' with APPEND so it runs after magit's
+own handlers.  No-op unless all three conditions hold:
+
+1. A knayawp layout is active and `knayawp--editor-window' is live.
+2. The current buffer is visiting a file (not a magit commit-message
+   buffer — those are already handled by the magit commit flow).
+3. The buffer is not already handled by the commit-flow; i.e., no
+   commit-zoom session is currently active.
+
+The file-path predicate is intentionally broad: any file opened via
+emacsclient while the layout is active and no commit-flow is running
+is routed to the editor pane.  This covers Claude's edit-prompt temp
+files without knowing their exact path pattern.  Tighten the
+predicate after observing a real Claude invocation to avoid routing
+non-Claude emacsclient opens unexpectedly."
+  (when (and knayawp--active-layouts
+             (window-live-p knayawp--editor-window)
+             (not (window-parameter knayawp--editor-window 'window-side))
+             (buffer-file-name)
+             (not (knayawp--commit-flow-active-p)))
+    (let ((buf (current-buffer)))
+      (set-window-buffer knayawp--editor-window buf)
+      (select-window knayawp--editor-window))))
+
+(defun knayawp--install-claude-editor-hook ()
+  "Register `knayawp--claude-editor-server-switch' on `server-switch-hook'.
+Idempotent.  Installed with APPEND so it runs after magit's own
+`server-switch-hook' entries."
+  (unless knayawp--claude-editor-hook-installed
+    (add-hook 'server-switch-hook
+              #'knayawp--claude-editor-server-switch t)
+    (setq knayawp--claude-editor-hook-installed t)))
+
+(defun knayawp--remove-claude-editor-hook ()
+  "Unregister `knayawp--claude-editor-server-switch'.
+Inverse of `knayawp--install-claude-editor-hook'.  Idempotent."
+  (when knayawp--claude-editor-hook-installed
+    (remove-hook 'server-switch-hook
+                 #'knayawp--claude-editor-server-switch)
+    (setq knayawp--claude-editor-hook-installed nil)))
 
 ;;;; Side-pane visit routing (#52)
 
