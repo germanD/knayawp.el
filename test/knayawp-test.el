@@ -3011,14 +3011,13 @@ buffer must be displayed in `knayawp--editor-window'."
          (fake-editor-win (selected-window))
          (buf-set nil)
          (win-selected nil)
+         (knayawp-claude-editor-flag t)
          (knayawp--active-layouts '(("/fake/" . t)))
          (knayawp--editor-window fake-editor-win)
          (knayawp--commit-pre-state nil))
     (unwind-protect
         (cl-letf (((symbol-function 'window-live-p)
                    (lambda (_w) t))
-                  ((symbol-function 'window-parameter)
-                   (lambda (_w _p) nil))
                   ((symbol-function 'buffer-file-name)
                    (lambda () "/tmp/claude-prompt-12345"))
                   ((symbol-function 'current-buffer)
@@ -3032,6 +3031,26 @@ buffer must be displayed in `knayawp--editor-window'."
           (should (eq buf-set file-buf))
           (should (eq win-selected fake-editor-win)))
       (when (buffer-live-p file-buf) (kill-buffer file-buf)))))
+
+(ert-deftest knayawp-test-claude-editor-server-switch-noop-flag-off ()
+  "`knayawp--claude-editor-server-switch' is a no-op when flag is nil.
+If the user disables `knayawp-claude-editor-flag' after layout setup,
+the hook must not route buffers."
+  (let* ((fake-editor-win (selected-window))
+         (knayawp-claude-editor-flag nil)
+         (knayawp--active-layouts '(("/fake/" . t)))
+         (knayawp--editor-window fake-editor-win)
+         (knayawp--commit-pre-state nil)
+         (touched 0))
+    (cl-letf (((symbol-function 'window-live-p) (lambda (_w) t))
+              ((symbol-function 'buffer-file-name)
+               (lambda () "/tmp/claude-prompt-12345"))
+              ((symbol-function 'set-window-buffer)
+               (lambda (&rest _) (cl-incf touched)))
+              ((symbol-function 'select-window)
+               (lambda (&rest _) (cl-incf touched))))
+      (knayawp--claude-editor-server-switch)
+      (should (= 0 touched)))))
 
 (ert-deftest knayawp-test-claude-editor-server-switch-noop-no-layout ()
   "`knayawp--claude-editor-server-switch' is a no-op with no layout."
@@ -3061,12 +3080,12 @@ buffer must be displayed in `knayawp--editor-window'."
 When a commit-zoom session is active the magit handler owns
 `server-switch-hook'; the Claude handler must not interfere."
   (let* ((fake-editor-win (selected-window))
+         (knayawp-claude-editor-flag t)
          (knayawp--active-layouts '(("/fake/" . t)))
          (knayawp--editor-window fake-editor-win)
          (knayawp--commit-pre-state (list :active t))
          (touched 0))
     (cl-letf (((symbol-function 'window-live-p) (lambda (_w) t))
-              ((symbol-function 'window-parameter) (lambda (_w _p) nil))
               ((symbol-function 'buffer-file-name)
                (lambda () "/tmp/claude-prompt-12345"))
               ((symbol-function 'set-window-buffer)
@@ -3081,12 +3100,12 @@ When a commit-zoom session is active the magit handler owns
 Magit commit messages and scratch buffers have no `buffer-file-name';
 the handler must pass them through unchanged."
   (let* ((fake-editor-win (selected-window))
+         (knayawp-claude-editor-flag t)
          (knayawp--active-layouts '(("/fake/" . t)))
          (knayawp--editor-window fake-editor-win)
          (knayawp--commit-pre-state nil)
          (touched 0))
     (cl-letf (((symbol-function 'window-live-p) (lambda (_w) t))
-              ((symbol-function 'window-parameter) (lambda (_w _p) nil))
               ((symbol-function 'buffer-file-name)
                (lambda () nil))
               ((symbol-function 'set-window-buffer)

@@ -93,9 +93,10 @@
               (knayawp-probe-check "s1-emacsclient-in-editor"
                                    t
                                    (and (stringp (car captured-env-vars))
-                                        (string-match-p
-                                         "emacsclient"
-                                         (car captured-env-vars)))
+                                        (if (string-match-p
+                                             "emacsclient"
+                                             (car captured-env-vars))
+                                            t nil))
                                    #'eq))
           (when (buffer-live-p fake-buf) (kill-buffer fake-buf))))
     (error (knayawp-probe-abort "s1 failed: %S" e))))

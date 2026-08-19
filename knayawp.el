@@ -764,8 +764,11 @@ then routes to the editor pane."
         (let* ((env-vars
                 (when knayawp-claude-editor-flag
                   (if (server-running-p)
-                      (when-let* ((ec (executable-find "emacsclient")))
-                        (list (concat "EDITOR=" ec)))
+                      (if-let* ((ec (executable-find "emacsclient")))
+                          (list (concat "EDITOR=" ec))
+                        (message "knayawp: emacsclient not found on PATH; \
+Claude editor integration disabled")
+                        nil)
                     (message "knayawp: no Emacs server running; \
 Claude editor integration disabled")
                     nil)))
@@ -1925,12 +1928,13 @@ recorded entry from `display-buffer-alist' and clear
 (defun knayawp--claude-editor-server-switch ()
   "Route emacsclient-opened files to the editor pane for Claude.
 Added to `server-switch-hook' with APPEND so it runs after magit's
-own handlers.  No-op unless all three conditions hold:
+own handlers.  No-op unless all four conditions hold:
 
-1. A knayawp layout is active and `knayawp--editor-window' is live.
-2. The current buffer is visiting a file (not a magit commit-message
+1. `knayawp-claude-editor-flag' is non-nil at call time.
+2. A knayawp layout is active and `knayawp--editor-window' is live.
+3. The current buffer is visiting a file (not a magit commit-message
    buffer — those are already handled by the magit commit flow).
-3. The buffer is not already handled by the commit-flow; i.e., no
+4. The buffer is not already handled by the commit-flow; i.e., no
    commit-zoom session is currently active.
 
 The file-path predicate is intentionally broad: any file opened via
@@ -1939,9 +1943,9 @@ is routed to the editor pane.  This covers Claude's edit-prompt temp
 files without knowing their exact path pattern.  Tighten the
 predicate after observing a real Claude invocation to avoid routing
 non-Claude emacsclient opens unexpectedly."
-  (when (and knayawp--active-layouts
+  (when (and knayawp-claude-editor-flag
+             knayawp--active-layouts
              (window-live-p knayawp--editor-window)
-             (not (window-parameter knayawp--editor-window 'window-side))
              (buffer-file-name)
              (not (knayawp--commit-flow-active-p)))
     (let ((buf (current-buffer)))
