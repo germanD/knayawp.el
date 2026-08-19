@@ -219,16 +219,16 @@ Resolved design decisions:
 - [ ] nit: bind frame-width once in knayawp--editor-columns to avoid double call — #96
 - [ ] enhancement: magit fixup (c f) flow — focus magit-log-select window automatically — #98
 - [x] enhancement: auto-refresh vterm panels after theme change — #100
-- [ ] New probe: layout immunity (P1) — C-x 0, C-x 2/3, C-x o isolation flag — #103
-- [ ] New probe: knayawp-toggle-panels — #104
-- [ ] New probe: commit-cancel flow — #105
-- [ ] New probe: knayawp-magit-commit-focus-after variants (magit, previous) — #106
-- [ ] AGENTS.md: probe authoring guide (naming, Probe-Geometry header, ERT/probe boundary) — #107
-- [ ] ERT: fix two misplaced tests (zoom batch trivially passes; monocle mocks overcomplicated) — #108
-- [ ] docs: Claude Code Notification hook to get OS alerts when Claude waits for input — #113
+- [x] New probe: layout immunity (P1) — C-x 0, C-x 2/3, C-x o isolation flag — #103
+- [x] New probe: knayawp-toggle-panels — #104
+- [x] New probe: commit-cancel flow — #105
+- [x] New probe: knayawp-magit-commit-focus-after variants (magit, previous) — #106
+- [x] AGENTS.md: probe authoring guide (naming, Probe-Geometry header, ERT/probe boundary) — #107
+- [x] ERT: fix two misplaced tests (zoom batch trivially passes; monocle mocks overcomplicated) — #108
+- [x] docs: Claude Code Notification hook to get OS alerts when Claude waits for input — #113
 - [ ] feat: send editor selection to Claude vterm panel as context reference — #115
-- [ ] fix: pass C-g and C-x through to Claude TUI in vterm/eat panels — #120
-- [ ] feat: C-g in Claude panel opens prompt editor as Emacs buffer in editor pane — #121
+- [x] fix: pass C-g and C-x through to Claude TUI in vterm/eat panels — #120
+- [x] feat: C-g in Claude panel opens prompt editor as Emacs buffer in editor pane — #121
 
 ---
 
