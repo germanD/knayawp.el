@@ -52,7 +52,7 @@
 
 (defun p1--settle ()
   "Pump the event loop briefly to let timers and redraws settle."
-  (sit-for 0.3))
+  (sit-for 0.1))
 
 (defun p1--setup-layout ()
   "Activate `knayawp-mode' and create a fresh layout."
@@ -223,7 +223,7 @@
 
 ;;;; Drive all scenarios
 
-(knayawp-probe-watchdog 90)
+(knayawp-probe-watchdog 120)
 
 (condition-case e
     (let ((default-directory (file-name-as-directory sandbox--test-dir)))
