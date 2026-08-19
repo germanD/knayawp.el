@@ -42,11 +42,24 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Install dependencies
-        run: sudo apt-get update && sudo apt-get install -y emacs tmux
+        run: sudo apt-get update && sudo apt-get install -y emacs tmux elpa-magit elpa-with-editor
       - name: Cache ELPA packages
+        id: elpa-cache
         uses: actions/cache@v4
         with:
           path: ~/.emacs.d/elpa
-          key: elpa-${{ hashFiles('test/sandbox.el', 'knayawp.el') }}
+          # Key on sandbox.el only — knayawp.el changes don't affect package versions.
+          key: elpa-${{ hashFiles('test/sandbox.el') }}
+          restore-keys: |
+            elpa-
+      - name: Bootstrap ELPA packages
+        if: steps.elpa-cache.outputs.cache-hit != 'true'
+        run: |
+          emacs -batch --eval "(progn \
+            (require 'package) \
+            (add-to-list 'package-archives '(\"melpa\" . \"https://melpa.org/packages/\")) \
+            (package-initialize) \
+            (package-refresh-contents) \
+            (package-install 'eat))" 2>&1 || true
       - name: Run probe suite
         run: bash test/run-probes.sh
