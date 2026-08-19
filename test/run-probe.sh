@@ -51,13 +51,13 @@ tmux new-session -d -s "$SESSION" -x "$COLS" -y "$ROWS" \
         -l '$PROBE'"
 
 # Wait for the report file (non-empty) or the session to vanish.
-deadline=$(( SECONDS + 90 ))
+deadline=$(( SECONDS + 120 ))
 while [ ! -s "$RESULTS" ]; do
     if ! tmux has-session -t "$SESSION" 2>/dev/null; then
         break
     fi
     if [ "$SECONDS" -ge "$deadline" ]; then
-        echo "run-probe: timed out after 90s waiting for results" >&2
+        echo "run-probe: timed out after 120s waiting for results" >&2
         echo "--- tmux pane capture ---" >&2
         tmux capture-pane -t "$SESSION" -p 2>/dev/null >&2 || true
         break

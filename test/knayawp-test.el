@@ -368,6 +368,12 @@ This preserves any prefix binding the user installed against
   (should-error (knayawp-select-panel 99)
                 :type 'user-error))
 
+;; knayawp-zoom-panel geometry (enter zoom, window counts, exit zoom) cannot be
+;; verified in batch mode because `emacs -batch' has no real frame.  The zoom
+;; behaviour is fully exercised by test/probes/monocle.el (scenarios 6-9) and
+;; test/probes/commit-flow-manual-zoom.el.  The user-error guard (fires when the
+;; selected window is not a side window) is testable in batch and lives below.
+
 (ert-deftest knayawp-test-zoom-not-in-panel ()
   "Zooming when not in a side window signals user-error."
   (let ((knayawp--zoomed-panel nil))
@@ -2061,40 +2067,12 @@ and set `knayawp--zoomed-panel' to nil."
 
 ;;;; Monocle state management (#97)
 
-(ert-deftest knayawp-test-monocle-saves-state-on-enter ()
-  "Entering monocle saves winconfig and zoom state in frame parameter."
-  (let ((knayawp--zoomed-panel 'vterm))
-    (cl-letf (((symbol-function 'current-window-configuration)
-               (lambda () 'fake-winconfig))
-              ((symbol-function 'seq-find)
-               (lambda (&rest _) 'fake-editor-win))
-              ((symbol-function 'window-buffer)
-               (lambda (_) 'fake-buf))
-              ((symbol-function 'set-window-buffer) #'ignore)
-              ((symbol-function 'knayawp--side-windows) (lambda () nil))
-              ((symbol-function 'select-window) #'ignore))
-      (set-frame-parameter nil 'knayawp--monocle-config nil)
-      (knayawp-monocle-panel)
-      (let ((cfg (frame-parameter nil 'knayawp--monocle-config)))
-        (should cfg)
-        (should (eq (car cfg) 'fake-winconfig))
-        (should (eq (cdr cfg) 'vterm))
-        (should-not knayawp--zoomed-panel))
-      (set-frame-parameter nil 'knayawp--monocle-config nil))))
-
-(ert-deftest knayawp-test-monocle-restores-state-on-exit ()
-  "Exiting monocle restores winconfig and zoom state."
-  (let* ((sentinel (current-window-configuration))
-         (restored-wc nil)
-         (knayawp--zoomed-panel nil))
-    (set-frame-parameter nil 'knayawp--monocle-config
-                         (cons sentinel 'magit))
-    (cl-letf (((symbol-function 'set-window-configuration)
-               (lambda (wc) (setq restored-wc wc))))
-      (knayawp-monocle-panel)
-      (should (eq restored-wc sentinel))
-      (should (eq knayawp--zoomed-panel 'magit))
-      (should-not (frame-parameter nil 'knayawp--monocle-config)))))
+;; The enter/exit state-machine (save winconfig+zoom on enter, restore on exit,
+;; clear frame parameter) is already covered by the simpler mocked tests above
+;; (`knayawp-test-monocle-panel-enters-monocle', `knayawp-test-monocle-panel-exits-monocle',
+;; `knayawp-test-monocle-panel-clears-zoomed-state').  Full geometry (window
+;; counts, side-window visibility, panel selection) is verified by
+;; test/probes/monocle.el.  No additional batch tests are needed here.
 
 (ert-deftest knayawp-test-monocle-clears-frame-param-on-exit ()
   "After monocle exit the frame parameter is nil."
@@ -2963,5 +2941,251 @@ split."
           ;; style = 'default → install must not fire.
           (should (= 0 install-calls)))
       (customize-set-variable 'knayawp-side-pane-visit-style saved-style))))
+
+;;;; Claude editor integration (#121)
+
+(ert-deftest knayawp-test-claude-editor-flag-default ()
+  "`knayawp-claude-editor-flag' defaults to t."
+  (should (eq t (default-value 'knayawp-claude-editor-flag))))
+
+(ert-deftest knayawp-test-claude-editor-hook-installed-initially-nil ()
+  "Claude editor hook install state is nil before setup."
+  (should-not knayawp--claude-editor-hook-installed))
+
+(ert-deftest knayawp-test-install-claude-editor-hook-idempotent ()
+  "Installing the Claude editor hook twice does not duplicate it."
+  ;; Note: we stub add-hook/remove-hook because Emacs `add-hook' writes
+  ;; to the default (global) hook value, not the let-bound local.
+  ;; Counting calls via stubs is the correct testing approach here.
+  (let ((knayawp--claude-editor-hook-installed nil)
+        (add-calls 0)
+        (remove-calls 0))
+    (cl-letf (((symbol-function 'add-hook)
+               (lambda (_hook _fn &rest _) (cl-incf add-calls)))
+              ((symbol-function 'remove-hook)
+               (lambda (_hook _fn) (cl-incf remove-calls))))
+      (knayawp--install-claude-editor-hook)
+      (should knayawp--claude-editor-hook-installed)
+      (should (= 1 add-calls))
+      ;; Second call is a no-op — add-hook must not be called again.
+      (knayawp--install-claude-editor-hook)
+      (should (= 1 add-calls))
+      ;; Cleanup
+      (knayawp--remove-claude-editor-hook)
+      (should-not knayawp--claude-editor-hook-installed)
+      (should (= 1 remove-calls)))))
+
+(ert-deftest knayawp-test-remove-claude-editor-hook-idempotent ()
+  "Removing the hook twice is safe."
+  (let ((knayawp--claude-editor-hook-installed nil)
+        (server-switch-hook nil))
+    (knayawp--install-claude-editor-hook)
+    (knayawp--remove-claude-editor-hook)
+    (should-not knayawp--claude-editor-hook-installed)
+    (should-not (memq #'knayawp--claude-editor-server-switch
+                      server-switch-hook))
+    ;; Second remove must not error.
+    (knayawp--remove-claude-editor-hook)
+    (should-not knayawp--claude-editor-hook-installed)))
+
+(ert-deftest knayawp-test-install-claude-editor-hook-appended ()
+  "The Claude editor hook is appended (APPEND=t) to `server-switch-hook'.
+Verify that `add-hook' is invoked with a truthy APPEND argument so
+the Claude handler lands after any pre-existing entries — in
+particular after magit's `magit-commit-diff-while-committing'."
+  (let ((knayawp--claude-editor-hook-installed nil)
+        (captured-append nil))
+    (cl-letf (((symbol-function 'add-hook)
+               (lambda (_hook _fn &optional append &rest _)
+                 (setq captured-append append))))
+      (knayawp--install-claude-editor-hook)
+      ;; Must have been called with a truthy APPEND.
+      (should captured-append))))
+
+(ert-deftest knayawp-test-claude-editor-server-switch-routes-file ()
+  "`knayawp--claude-editor-server-switch' routes file buffers to editor.
+When a layout is active, `knayawp--editor-window' is live, the
+current buffer visits a file, and no commit-flow is active, the
+buffer must be displayed in `knayawp--editor-window'."
+  (let* ((file-buf (generate-new-buffer " *knayawp-test-claude-file*"))
+         (fake-editor-win (selected-window))
+         (buf-set nil)
+         (win-selected nil)
+         (knayawp-claude-editor-flag t)
+         (knayawp--active-layouts '(("/fake/" . t)))
+         (knayawp--editor-window fake-editor-win)
+         (knayawp--commit-pre-state nil))
+    (unwind-protect
+        (cl-letf (((symbol-function 'window-live-p)
+                   (lambda (_w) t))
+                  ((symbol-function 'buffer-file-name)
+                   (lambda () "/tmp/claude-prompt-12345"))
+                  ((symbol-function 'current-buffer)
+                   (lambda () file-buf))
+                  ((symbol-function 'set-window-buffer)
+                   (lambda (_win buf) (setq buf-set buf)))
+                  ((symbol-function 'select-window)
+                   (lambda (win &optional _norecord)
+                     (setq win-selected win))))
+          (knayawp--claude-editor-server-switch)
+          (should (eq buf-set file-buf))
+          (should (eq win-selected fake-editor-win)))
+      (when (buffer-live-p file-buf) (kill-buffer file-buf)))))
+
+(ert-deftest knayawp-test-claude-editor-server-switch-noop-flag-off ()
+  "`knayawp--claude-editor-server-switch' is a no-op when flag is nil.
+If the user disables `knayawp-claude-editor-flag' after layout setup,
+the hook must not route buffers."
+  (let* ((fake-editor-win (selected-window))
+         (knayawp-claude-editor-flag nil)
+         (knayawp--active-layouts '(("/fake/" . t)))
+         (knayawp--editor-window fake-editor-win)
+         (knayawp--commit-pre-state nil)
+         (touched 0))
+    (cl-letf (((symbol-function 'window-live-p) (lambda (_w) t))
+              ((symbol-function 'buffer-file-name)
+               (lambda () "/tmp/claude-prompt-12345"))
+              ((symbol-function 'set-window-buffer)
+               (lambda (&rest _) (cl-incf touched)))
+              ((symbol-function 'select-window)
+               (lambda (&rest _) (cl-incf touched))))
+      (knayawp--claude-editor-server-switch)
+      (should (= 0 touched)))))
+
+(ert-deftest knayawp-test-claude-editor-server-switch-noop-no-layout ()
+  "`knayawp--claude-editor-server-switch' is a no-op with no layout."
+  (let ((knayawp--active-layouts nil)
+        (touched 0))
+    (cl-letf (((symbol-function 'set-window-buffer)
+               (lambda (&rest _) (cl-incf touched)))
+              ((symbol-function 'select-window)
+               (lambda (&rest _) (cl-incf touched))))
+      (knayawp--claude-editor-server-switch)
+      (should (= 0 touched)))))
+
+(ert-deftest knayawp-test-claude-editor-server-switch-noop-no-editor-win ()
+  "`knayawp--claude-editor-server-switch' is a no-op when editor window is dead."
+  (let ((knayawp--active-layouts '(("/fake/" . t)))
+        (knayawp--editor-window nil)
+        (touched 0))
+    (cl-letf (((symbol-function 'set-window-buffer)
+               (lambda (&rest _) (cl-incf touched)))
+              ((symbol-function 'select-window)
+               (lambda (&rest _) (cl-incf touched))))
+      (knayawp--claude-editor-server-switch)
+      (should (= 0 touched)))))
+
+(ert-deftest knayawp-test-claude-editor-server-switch-noop-commit-active ()
+  "`knayawp--claude-editor-server-switch' defers to commit-flow handler.
+When a commit-zoom session is active the magit handler owns
+`server-switch-hook'; the Claude handler must not interfere."
+  (let* ((fake-editor-win (selected-window))
+         (knayawp-claude-editor-flag t)
+         (knayawp--active-layouts '(("/fake/" . t)))
+         (knayawp--editor-window fake-editor-win)
+         (knayawp--commit-pre-state (list :active t))
+         (touched 0))
+    (cl-letf (((symbol-function 'window-live-p) (lambda (_w) t))
+              ((symbol-function 'buffer-file-name)
+               (lambda () "/tmp/claude-prompt-12345"))
+              ((symbol-function 'set-window-buffer)
+               (lambda (&rest _) (cl-incf touched)))
+              ((symbol-function 'select-window)
+               (lambda (&rest _) (cl-incf touched))))
+      (knayawp--claude-editor-server-switch)
+      (should (= 0 touched)))))
+
+(ert-deftest knayawp-test-claude-editor-server-switch-noop-no-file ()
+  "`knayawp--claude-editor-server-switch' ignores non-file buffers.
+Magit commit messages and scratch buffers have no `buffer-file-name';
+the handler must pass them through unchanged."
+  (let* ((fake-editor-win (selected-window))
+         (knayawp-claude-editor-flag t)
+         (knayawp--active-layouts '(("/fake/" . t)))
+         (knayawp--editor-window fake-editor-win)
+         (knayawp--commit-pre-state nil)
+         (touched 0))
+    (cl-letf (((symbol-function 'window-live-p) (lambda (_w) t))
+              ((symbol-function 'buffer-file-name)
+               (lambda () nil))
+              ((symbol-function 'set-window-buffer)
+               (lambda (&rest _) (cl-incf touched)))
+              ((symbol-function 'select-window)
+               (lambda (&rest _) (cl-incf touched))))
+      (knayawp--claude-editor-server-switch)
+      (should (= 0 touched)))))
+
+(ert-deftest knayawp-test-get-or-create-claude-injects-editor-env ()
+  "Claude buffer creation passes EDITOR=emacsclient when flag is set.
+When `knayawp-claude-editor-flag' is t and a server is running,
+`knayawp--get-or-create-claude-buffer' must call `knayawp--make-terminal'
+with an env-vars list that contains an EDITOR= entry."
+  (let ((knayawp-claude-editor-flag t)
+        (knayawp-claude-command "claude")
+        (captured-env-vars 'unset)
+        (buf (generate-new-buffer " *knayawp-test-claude-env*")))
+    (unwind-protect
+        (cl-letf (((symbol-function 'get-buffer) (lambda (_n) nil))
+                  ((symbol-function 'server-running-p) (lambda () t))
+                  ((symbol-function 'executable-find)
+                   (lambda (_cmd) "/usr/bin/emacsclient"))
+                  ((symbol-function 'knayawp--make-terminal)
+                   (lambda (_name _dir _cmd env-vars)
+                     (setq captured-env-vars env-vars)
+                     buf)))
+          (knayawp--get-or-create-claude-buffer "/fake/" "fake")
+          (should (listp captured-env-vars))
+          (should (= 1 (length captured-env-vars)))
+          (should (string-prefix-p "EDITOR=" (car captured-env-vars)))
+          (should (string-match-p "emacsclient" (car captured-env-vars))))
+      (when (buffer-live-p buf) (kill-buffer buf)))))
+
+(ert-deftest knayawp-test-get-or-create-claude-no-env-when-flag-off ()
+  "No EDITOR injection when `knayawp-claude-editor-flag' is nil."
+  (let ((knayawp-claude-editor-flag nil)
+        (captured-env-vars 'unset)
+        (buf (generate-new-buffer " *knayawp-test-claude-no-env*")))
+    (unwind-protect
+        (cl-letf (((symbol-function 'get-buffer) (lambda (_n) nil))
+                  ((symbol-function 'knayawp--make-terminal)
+                   (lambda (_name _dir _cmd env-vars)
+                     (setq captured-env-vars env-vars)
+                     buf)))
+          (knayawp--get-or-create-claude-buffer "/fake/" "fake")
+          (should (null captured-env-vars)))
+      (when (buffer-live-p buf) (kill-buffer buf)))))
+
+(ert-deftest knayawp-test-get-or-create-claude-no-env-when-no-server ()
+  "No EDITOR injection when no Emacs server is running."
+  (let ((knayawp-claude-editor-flag t)
+        (captured-env-vars 'unset)
+        (buf (generate-new-buffer " *knayawp-test-claude-no-server*")))
+    (unwind-protect
+        (cl-letf (((symbol-function 'get-buffer) (lambda (_n) nil))
+                  ((symbol-function 'server-running-p) (lambda () nil))
+                  ((symbol-function 'knayawp--make-terminal)
+                   (lambda (_name _dir _cmd env-vars)
+                     (setq captured-env-vars env-vars)
+                     buf)))
+          (knayawp--get-or-create-claude-buffer "/fake/" "fake")
+          (should (null captured-env-vars)))
+      (when (buffer-live-p buf) (kill-buffer buf)))))
+
+(ert-deftest knayawp-test-teardown-removes-claude-editor-hook ()
+  "`knayawp-layout-teardown' unregisters the Claude editor hook."
+  (let ((knayawp--claude-editor-hook-installed t)
+        (knayawp--commit-pre-state nil)
+        (knayawp--fixup-pre-state nil)
+        (knayawp--frame-widths nil)
+        (remove-called nil))
+    (cl-letf (((symbol-function 'knayawp--teardown-magit-integration) #'ignore)
+              ((symbol-function 'knayawp--remove-visit-routing) #'ignore)
+              ((symbol-function 'knayawp--remove-claude-editor-hook)
+               (lambda () (setq remove-called t)
+                 (setq knayawp--claude-editor-hook-installed nil)))
+              ((symbol-function 'knayawp--side-windows) (lambda () nil)))
+      (knayawp-layout-teardown))
+    (should remove-called)
+    (should-not knayawp--claude-editor-hook-installed)))
 
 ;;; knayawp-test.el ends here

@@ -198,3 +198,34 @@ Per GNU Emacs conventions, `C-c LETTER` is reserved for users. The package defin
 ;; Suggested in documentation, not enforced:
 (global-set-key (kbd "C-c k") knayawp-command-map)
 ```
+
+## Claude Code Integration
+
+**OS notifications when Claude waits for input.** When Claude Code runs in the terminal
+panel and pauses for user input, there is no built-in signal to users focused elsewhere
+in Emacs or in another application. Claude Code provides a `Notification` hook event
+that fires on these occasions. Wire it to a system-level notification command via
+`.claude/settings.local.json` — no Emacs Lisp required:
+
+```json
+{
+  "hooks": {
+    "Notification": [{
+      "matcher": "",
+      "hooks": [{
+        "type": "command",
+        "command": "notify-send 'Claude Code' 'Waiting for input' 2>/dev/null || osascript -e 'display notification \"Waiting\" with title \"Claude Code\"'"
+      }]
+    }]
+  }
+}
+```
+
+`notify-send` is used on Linux (libnotify); `osascript` is the macOS fallback. The
+`2>/dev/null` suppresses errors when the command is unavailable on a given platform.
+Place this in `.claude/settings.local.json` (user-local, not checked into the project
+repo) so the snippet does not affect other contributors.
+
+Claude Code's `Notification` hook also fires for other events (e.g. permission prompts
+and agent-stop events), so the notification may appear for reasons other than
+"waiting for user text input". That is expected and generally useful.
