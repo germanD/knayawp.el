@@ -229,6 +229,11 @@ Resolved design decisions:
 - [ ] feat: send editor selection to Claude vterm panel as context reference — #115
 - [x] fix: pass C-g and C-x through to Claude TUI in vterm/eat panels — #120
 - [x] feat: C-g in Claude panel opens prompt editor as Emacs buffer in editor pane — #121
+- [x] fix: C-g sends BEL not ESC to Claude TUI; add C-c k C-x for Control-x passthrough — #127
+
+### v0.1.6 — Keymap Hygiene
+
+- [ ] chore: audit knayawp command-map bindings for conflicts with common packages — #128
 
 ---
 
