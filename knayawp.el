@@ -51,9 +51,7 @@
 (declare-function vterm-copy-mode "vterm")
 (defvar vterm-copy-mode)
 (declare-function vterm-yank "vterm")
-(declare-function vterm-send-key "vterm"
-                  (key &optional shift meta ctrl accept-proc-output))
-(declare-function vterm--self-insert "vterm" ())
+(declare-function vterm-send-string "vterm" (string &optional paste-p))
 (defvar eat-buffer-name)
 (defvar eat-terminal nil
   "The eat terminal object for the current buffer (eat internal).")
@@ -601,22 +599,23 @@ ENV-VARS is an optional list of \"VAR=VALUE\" strings prepended to
 
 (defun knayawp--make-terminal-setup-claude-keymap-vterm (buf)
   "Install a Claude-aware keymap overlay in vterm buffer BUF.
-Overrides the quit key to send ESC (Claude's prompt-editor
-shortcut) and the prefix key to pass the raw byte through instead
-of triggering the Emacs prefix map."
+Overrides the quit key (normally `keyboard-quit') to send a raw
+BEL byte to the Claude process, triggering its open-in-editor
+flow.  The prefix key cannot be intercepted this way; use
+`knayawp-claude-send-ctrl-x' via the command map instead."
   (with-current-buffer buf
     (let ((map (make-sparse-keymap)))
       (set-keymap-parent map (current-local-map))
       (define-key map (kbd "C-g")
-                  (lambda () (interactive) (vterm-send-key "<escape>")))
-      (define-key map (kbd "C-x") #'vterm--self-insert)
+                  (lambda () (interactive) (vterm-send-string "\C-g")))
       (use-local-map map))))
 
 (defun knayawp--make-terminal-setup-claude-keymap-eat (buf)
   "Install a Claude-aware keymap overlay in eat buffer BUF.
-Overrides the quit key to send ESC (Claude's prompt-editor
-shortcut) and the prefix key to pass the raw byte through to the
-process."
+Overrides the quit key (normally `keyboard-quit') to send a raw
+BEL byte to the Claude process, triggering its open-in-editor
+flow.  The prefix key cannot be intercepted this way; use
+`knayawp-claude-send-ctrl-x' via the command map instead."
   (with-current-buffer buf
     (let* ((map (make-sparse-keymap))
            (term eat-terminal))
@@ -624,11 +623,7 @@ process."
       (define-key map (kbd "C-g")
                   (lambda ()
                     (interactive)
-                    (eat-term-send-string term "\e")))
-      (define-key map (kbd "C-x")
-                  (lambda ()
-                    (interactive)
-                    (eat-term-send-string term "\C-x")))
+                    (eat-term-send-string term "\C-g")))
       (use-local-map map))))
 
 ;;;; Terminal copy/paste dispatch
@@ -655,6 +650,17 @@ process."
   (with-selected-window window
     (when-let* ((text (current-kill 0 t)))
       (eat-send-string (get-buffer-process (current-buffer)) text))))
+
+(defun knayawp--make-terminal-send-string-vterm (window string)
+  "Send STRING to the vterm process in WINDOW."
+  (with-current-buffer (window-buffer window)
+    (vterm-send-string string)))
+
+(defun knayawp--make-terminal-send-string-eat (window string)
+  "Send STRING to the eat process in WINDOW."
+  (with-current-buffer (window-buffer window)
+    (when (and (boundp 'eat-terminal) eat-terminal)
+      (eat-term-send-string eat-terminal string))))
 
 (defun knayawp--terminal-panel-windows ()
   "Return side windows for terminal panels (vterm and claude).
@@ -709,6 +715,24 @@ terminal process using the backend-appropriate paste command:
     (pcase knayawp-terminal-backend
       ('vterm (knayawp--make-terminal-yank-vterm win))
       ('eat  (knayawp--make-terminal-yank-eat win))
+      (_ (user-error "Unknown terminal backend: %s"
+                     knayawp-terminal-backend)))))
+
+(defun knayawp-claude-send-ctrl-x ()
+  "Send the Control-x byte to the Claude panel terminal.
+The Control-x prefix cannot be overridden in a buffer-local
+keymap.  Use \\[knayawp-claude-send-ctrl-x] to pass the byte
+through to the Claude process instead."
+  (interactive)
+  (let* ((spec (assq 'claude knayawp-panels))
+         (win (and spec
+                   (knayawp--side-window-for-slot
+                    (knayawp--panel-slot spec)))))
+    (unless win
+      (user-error "No Claude panel — run knayawp-layout-setup first"))
+    (pcase knayawp-terminal-backend
+      ('vterm (knayawp--make-terminal-send-string-vterm win "\C-x"))
+      ('eat  (knayawp--make-terminal-send-string-eat   win "\C-x"))
       (_ (user-error "Unknown terminal backend: %s"
                      knayawp-terminal-backend)))))
 
@@ -1804,6 +1828,7 @@ key."
   (define-key map "s" #'knayawp-toggle-panels)
   (define-key map " " #'knayawp-terminal-copy-mode)
   (define-key map "y" #'knayawp-terminal-yank)
+  (define-key map (kbd "C-x") #'knayawp-claude-send-ctrl-x)
   map)
 
 (defun knayawp--build-command-map ()

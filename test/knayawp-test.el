@@ -1470,6 +1470,16 @@ passive-loading discipline carries through to the customize path)."
   (should (eq 'knayawp-terminal-yank
               (lookup-key knayawp-command-map "y"))))
 
+(ert-deftest knayawp-test-command-map-ctrl-x-binding ()
+  "Command map binds ctrl-x to `knayawp-claude-send-ctrl-x'."
+  (should (eq 'knayawp-claude-send-ctrl-x
+              (lookup-key knayawp-command-map (kbd "C-x")))))
+
+(ert-deftest knayawp-test-claude-send-ctrl-x-no-panel ()
+  "`knayawp-claude-send-ctrl-x' signals user-error with no Claude window."
+  (let ((knayawp-panels '((claude :slot 2))))
+    (should-error (knayawp-claude-send-ctrl-x) :type 'user-error)))
+
 (ert-deftest knayawp-test-terminal-panel-windows-excludes-magit ()
   "`knayawp--terminal-panel-windows' omits the magit slot.
 Only vterm/claude panel types are returned; the magit panel at

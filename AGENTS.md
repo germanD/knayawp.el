@@ -272,6 +272,16 @@ The implementer agent that lands the fix is responsible for posting the per-find
 
 The `pmo` agent (see [Agent Roles](#agent-roles)) owns this reconciliation. Invoke it at issue creation, milestone close, and release prep.
 
+## Feature Request Requirements
+
+Before any implementation starts, a feature issue must answer these questions unambiguously:
+
+- **Exact key sequences** — if a feature depends on a third-party app's key binding (Claude CLI, magit, vterm, eat), confirm the binding in the actual running application before writing code. Do not infer it from the issue description; test it.
+- **Emacs key interception** — if the feature involves a key that Emacs treats as a prefix (e.g. `C-x`) or a reserved command (e.g. `C-g` = `keyboard-quit`), the issue must specify the mechanism for passthrough (local map override, command map binding, `overriding-local-map`, etc.) and note any known limitations.
+- **End-to-end flow** — list every hop in the flow (key pressed → byte sent → app receives → app action → Emacs reaction). Any hop that cannot be verified in `emacs -batch` must be flagged for manual verification before the PR is merged, not after.
+
+The `pmo` agent is responsible for requesting this information when filing or triaging issues. Implementers must not start coding until all three questions are answered.
+
 ## Quality Checklist
 
 Before considering any task done:
