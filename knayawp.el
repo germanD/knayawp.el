@@ -76,6 +76,7 @@
 (defvar magit-log-select-quit-hook)
 (declare-function magit-mode-get-buffer "magit-mode")
 (declare-function server-running-p "server")
+(declare-function server-edit "server")
 
 ;;;; Customization group
 
@@ -1987,9 +1988,10 @@ Unlike `server-running-p', which tests whether any socket exists at
 the expected path (including sockets owned by daemons or previous
 sessions), this checks `server-process' directly — the process object
 set by `server-start' only when THIS Emacs is the server."
-  (and (boundp 'server-process)
-       (processp server-process)
-       (process-live-p server-process)))
+  (if (and (boundp 'server-process)
+           (processp server-process)
+           (process-live-p server-process))
+      t nil))
 
 (defun knayawp--ensure-editor-server ()
   "Ensure a live Emacs server exists; return its socket path or nil.
@@ -2038,7 +2040,11 @@ non-Claude emacsclient opens unexpectedly."
              (not (knayawp--commit-flow-active-p)))
     (let ((buf (current-buffer)))
       (set-window-buffer knayawp--editor-window buf)
-      (select-window knayawp--editor-window))))
+      (select-window knayawp--editor-window)
+      (with-current-buffer buf
+        (setq-local header-line-format
+                    "Claude edit — C-c C-c or C-x # to finish, then return to Claude panel")
+        (local-set-key (kbd "C-c C-c") #'server-edit)))))
 
 (defun knayawp--install-claude-editor-hook ()
   "Register `knayawp--claude-editor-server-switch' on `server-switch-hook'.
