@@ -2015,6 +2015,15 @@ name, and cache the path in `knayawp--editor-server-socket'."
        (message "knayawp: could not start Emacs server: %S" err)
        nil)))))
 
+(defun knayawp--claude-edit-finish ()
+  "Save the Claude edit buffer and signal done to emacsclient.
+Saves before calling `server-edit' so Emacs does not prompt to save a
+modified buffer — the same approach used by `with-editor-finish' in
+magit."
+  (interactive)
+  (save-buffer)
+  (server-edit))
+
 (defun knayawp--claude-editor-server-switch ()
   "Route emacsclient-opened files to the editor pane for Claude.
 Added to `server-switch-hook' with APPEND so it runs after magit's
@@ -2044,7 +2053,8 @@ non-Claude emacsclient opens unexpectedly."
       (with-current-buffer buf
         (setq-local header-line-format
                     "Claude edit — C-c C-c or C-x # to finish, then return to Claude panel")
-        (local-set-key (kbd "C-c C-c") #'server-edit)))))
+        (local-set-key (kbd "C-c C-c") #'knayawp--claude-edit-finish)
+        (local-set-key (kbd "C-x #") #'knayawp--claude-edit-finish)))))
 
 (defun knayawp--install-claude-editor-hook ()
   "Register `knayawp--claude-editor-server-switch' on `server-switch-hook'.
