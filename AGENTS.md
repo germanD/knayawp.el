@@ -187,6 +187,8 @@ Regular pushes are governed by the autonomy rules in `CLAUDE.md`: agents may pus
 
 Feature-branch worktrees live under `.claude/worktrees/pr<N>/` (path is `.gitignore`d). Co-locating the worktree with the repo keeps it inside the sandbox's writable scope so background implementer agents can edit, byte-compile, test, and push from it without needing per-command bypass approval. Keep the worktree in place until the PR merges; clean up only after merge or branch abandonment.
 
+**Removing a worktree.** Always use `git worktree remove --force <path>` — never `rm -rf <path>`. A bare `rm -rf` removes the directory but leaves stale bookkeeping under `.git/worktrees/`, causing subsequent `git worktree list` calls to fail with `fatal: not a git repository: .git/worktrees/<name>`. If a stale reference already exists (from a previous `rm -rf`), run `git worktree prune` to clean it up before continuing.
+
 ### Issue and PR linking
 
 - Every PR must reference the issues it closes using `Closes #N` or `Fixes #N` in the PR body. This auto-closes the issues on merge.
@@ -257,6 +259,18 @@ gh api repos/OWNER/REPO/issues/PR_NUMBER/comments -X POST -f body="Fixed in SHA 
 ```
 
 The implementer agent that lands the fix is responsible for posting the per-finding replies immediately after the commit that resolves each finding. The pmo agent verifies at pre-merge checklist time that all non-deferred review findings have an individual reply.
+
+### gh CLI quirks on this repo
+
+**Projects (classic) GraphQL deprecation.** `gh pr view <N>`, `gh pr list`, and `gh pr edit` all exit 1 with a `GraphQL: Projects (classic) is being deprecated (repository.pullRequest.projectCards)` error whenever a PR has a Projects classic card. The workaround for each command:
+
+- `gh pr view <N>`: use `gh pr view <N> --json number,title,state,body,labels` with an explicit comma-separated field list. This skips the projectCards fetch entirely.
+- `gh pr list`: use `gh pr list --json number,title,state,headRefName,labels` with an explicit field list.
+- `gh pr edit --body`: use the REST PATCH path — see `feedback_gh_pr_edit_projects_classic.md` memory entry for the exact `gh api -X PATCH` invocation.
+
+Never retry the plain `gh pr view <N>` or `gh pr edit --body` form assuming the error is transient — it is structural.
+
+**Empty-set exit codes.** `gh issue list` and `gh milestone list` (and similar pure-query `gh` commands) exit 1 when the result set is empty, not 0. Any `&&`-chain or pipeline that relies on these commands will abort silently on an empty repo or empty milestone. Always append `|| true` to pure-query `gh` commands that can legitimately return an empty set, or test the exit code explicitly before acting on the output.
 
 ### Milestone hygiene
 
