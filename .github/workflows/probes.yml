@@ -42,7 +42,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Install dependencies
-        run: sudo apt-get update && sudo apt-get install -y emacs tmux elpa-magit elpa-with-editor
+        run: |
+          sudo apt-get update
+          # Build tools for vterm native module; elpa-vterm/magit/with-editor as fast-path
+          # fallbacks (not available on all Ubuntu images, hence || true).
+          sudo apt-get install -y emacs tmux \
+            build-essential cmake libtool libtool-bin automake pkg-config \
+            elpa-magit elpa-with-editor elpa-vterm || true
       - name: Cache ELPA packages
         id: elpa-cache
         uses: actions/cache@v4
@@ -60,6 +66,8 @@ jobs:
             (add-to-list 'package-archives '(\"melpa\" . \"https://melpa.org/packages/\")) \
             (package-initialize) \
             (package-refresh-contents) \
-            (package-install 'eat))" 2>&1 || true
+            (dolist (pkg '(vterm magit with-editor eat)) \
+              (unless (package-installed-p pkg) \
+                (ignore-errors (package-install pkg)))))" 2>&1 || true
       - name: Run probe suite
         run: bash test/run-probes.sh
