@@ -62,6 +62,8 @@
 (declare-function eat-term-send-string "eat" (terminal string))
 (defvar eat--input-mode)
 (declare-function magit-status-setup-buffer "magit-status")
+(defvar server-name)
+(defvar server-socket-dir)
 (defvar magit-display-buffer-function)
 (declare-function magit-display-buffer-traditional "magit-mode")
 (defvar git-commit-setup-hook)
@@ -785,10 +787,12 @@ PROJECT-NAME is used for the buffer name.  Create one via
 `knayawp--make-terminal' with `knayawp-claude-command'.
 
 For new buffers: when `knayawp-claude-editor-flag' is non-nil and
-an Emacs server is running, EDITOR=emacsclient is injected into the
-terminal process environment so Claude's edit-prompt flow opens the
-temp file via `emacsclient', which our `server-switch-hook' handler
-then routes to the editor pane.
+an Emacs server is running, EDITOR=emacsclient with an explicit
+-s socket path is injected into the terminal process environment.
+This pins emacsclient to this Emacs process rather than any daemon
+sharing the default socket, so Claude's edit-prompt flow opens the
+temp file here and our `server-switch-hook' handler routes it to
+the editor pane.
 
 For reused buffers: `knayawp--claude-panel-mode' is (re-)enabled so
 BEL passthrough is active.  If EDITOR was not injected at creation
@@ -808,7 +812,10 @@ kill it and run knayawp-layout-setup again for editor integration")))
               (when knayawp-claude-editor-flag
                 (if (server-running-p)
                     (if-let* ((ec (executable-find "emacsclient")))
-                        (list (concat "EDITOR=" ec))
+                        (list (concat "EDITOR=" ec " -s "
+                                      (shell-quote-argument
+                                       (expand-file-name server-name
+                                                         server-socket-dir))))
                       (message "knayawp: emacsclient not found on PATH; \
 Claude editor integration disabled")
                       nil)

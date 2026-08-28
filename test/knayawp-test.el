@@ -11,6 +11,11 @@
 (require 'ert)
 (require 'knayawp)
 
+;; Declare server.el variables as special so let-bindings in tests are
+;; dynamic and visible inside called functions (lexical-binding is on).
+(defvar server-name)
+(defvar server-socket-dir)
+
 ;;;; Project name derivation
 
 (ert-deftest knayawp-test-project-name-simple ()
@@ -3126,12 +3131,15 @@ the handler must pass them through unchanged."
       (should (= 0 touched)))))
 
 (ert-deftest knayawp-test-get-or-create-claude-injects-editor-env ()
-  "Claude buffer creation passes EDITOR=emacsclient when flag is set.
+  "Claude buffer creation passes EDITOR=emacsclient -s SOCKET when flag is set.
 When `knayawp-claude-editor-flag' is t and a server is running,
 `knayawp--get-or-create-claude-buffer' must call `knayawp--make-terminal'
-with an env-vars list that contains an EDITOR= entry."
+with an env-vars list containing an EDITOR= entry that includes the
+emacsclient binary and the -s socket path argument."
   (let ((knayawp-claude-editor-flag t)
         (knayawp-claude-command "claude")
+        (server-name "server")
+        (server-socket-dir "/tmp/emacs-test")
         (captured-env-vars 'unset)
         (buf (generate-new-buffer " *knayawp-test-claude-env*")))
     (unwind-protect
@@ -3147,7 +3155,10 @@ with an env-vars list that contains an EDITOR= entry."
           (should (listp captured-env-vars))
           (should (= 1 (length captured-env-vars)))
           (should (string-prefix-p "EDITOR=" (car captured-env-vars)))
-          (should (string-match-p "emacsclient" (car captured-env-vars))))
+          (should (string-match-p "emacsclient" (car captured-env-vars)))
+          (should (string-match-p "-s" (car captured-env-vars)))
+          (should (string-match-p "/tmp/emacs-test/server"
+                                  (car captured-env-vars))))
       (when (buffer-live-p buf) (kill-buffer buf)))))
 
 (ert-deftest knayawp-test-get-or-create-claude-no-env-when-flag-off ()
