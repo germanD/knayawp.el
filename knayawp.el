@@ -509,6 +509,12 @@ Stored for precise removal.")
 Set by `knayawp--install-claude-editor-hook', cleared by
 `knayawp--remove-claude-editor-hook' so install/remove are idempotent.")
 
+(defvar-local knayawp--claude-editor-env-set nil
+  "Non-nil when EDITOR=emacsclient was injected into this Claude buffer.
+Set at buffer creation time by `knayawp--get-or-create-claude-buffer'
+when the server was running and emacsclient was found on PATH.
+Nil for reused buffers that predate the layout setup.")
+
 ;;;; Project detection
 
 (defun knayawp--project-root ()
@@ -595,36 +601,35 @@ ENV-VARS is an optional list of \"VAR=VALUE\" strings prepended to
         (eat)))
     (get-buffer name)))
 
-;;;; Claude keymap overlays
+;;;; Claude panel minor mode (C-g passthrough)
 
-(defun knayawp--make-terminal-setup-claude-keymap-vterm (buf)
-  "Install a Claude-aware keymap overlay in vterm buffer BUF.
-Overrides the quit key (normally `keyboard-quit') to send a raw
-BEL byte to the Claude process, triggering its open-in-editor
-flow.  The prefix key cannot be intercepted this way; use
-`knayawp-claude-send-ctrl-x' via the command map instead."
-  (with-current-buffer buf
-    (let ((map (make-sparse-keymap)))
-      (set-keymap-parent map (current-local-map))
-      (define-key map (kbd "C-g")
-                  (lambda () (interactive) (vterm-send-string "\C-g")))
-      (use-local-map map))))
+(defun knayawp--claude-panel-send-cg ()
+  "Send BEL to the Claude TUI process.
+Installed by `knayawp--claude-panel-mode'.  Sends the BEL byte
+that triggers Claude's open-in-editor flow instead of invoking
+`keyboard-quit'."
+  (interactive)
+  (pcase knayawp-terminal-backend
+    ('vterm (vterm-send-string "\C-g"))
+    ('eat
+     (when (and (boundp 'eat-terminal) eat-terminal)
+       (eat-term-send-string eat-terminal "\C-g")))))
 
-(defun knayawp--make-terminal-setup-claude-keymap-eat (buf)
-  "Install a Claude-aware keymap overlay in eat buffer BUF.
-Overrides the quit key (normally `keyboard-quit') to send a raw
-BEL byte to the Claude process, triggering its open-in-editor
-flow.  The prefix key cannot be intercepted this way; use
-`knayawp-claude-send-ctrl-x' via the command map instead."
-  (with-current-buffer buf
-    (let* ((map (make-sparse-keymap))
-           (term eat-terminal))
-      (set-keymap-parent map (current-local-map))
-      (define-key map (kbd "C-g")
-                  (lambda ()
-                    (interactive)
-                    (eat-term-send-string term "\C-g")))
-      (use-local-map map))))
+(defvar knayawp--claude-panel-mode-map
+  (let ((map (make-sparse-keymap)))
+    (define-key map (kbd "C-g") #'knayawp--claude-panel-send-cg)
+    map)
+  "Keymap active in `knayawp--claude-panel-mode'.")
+
+(define-minor-mode knayawp--claude-panel-mode
+  "Buffer-local minor mode that passes BEL through to the Claude TUI.
+When active, \\[knayawp--claude-panel-send-cg] sends BEL to the
+Claude process (triggering its open-in-editor flow) instead of
+invoking `keyboard-quit'.  Minor-mode keymaps take precedence over
+the major-mode local map, so this survives vterm `use-local-map'
+calls."
+  :lighter nil
+  :keymap knayawp--claude-panel-mode-map)
 
 ;;;; Terminal copy/paste dispatch
 
@@ -778,31 +783,46 @@ Create one via `knayawp--make-terminal' if needed."
   "Return a Claude Code buffer for PROJECT-ROOT.
 PROJECT-NAME is used for the buffer name.  Create one via
 `knayawp--make-terminal' with `knayawp-claude-command'.
-When `knayawp-claude-editor-flag' is non-nil and an Emacs server
-is running, EDITOR=emacsclient is injected into the terminal
-process environment so Claude's edit-prompt flow opens the temp
-file via `emacsclient', which our `server-switch-hook' handler
-then routes to the editor pane."
+
+For new buffers: when `knayawp-claude-editor-flag' is non-nil and
+an Emacs server is running, EDITOR=emacsclient is injected into the
+terminal process environment so Claude's edit-prompt flow opens the
+temp file via `emacsclient', which our `server-switch-hook' handler
+then routes to the editor pane.
+
+For reused buffers: `knayawp--claude-panel-mode' is (re-)enabled so
+BEL passthrough is active.  If EDITOR was not injected at creation
+time, a message is emitted explaining that the panel must be
+restarted for editor integration."
   (let ((buf-name (knayawp--buffer-name 'claude project-name)))
-    (or (get-buffer buf-name)
-        (let* ((env-vars
-                (when knayawp-claude-editor-flag
-                  (if (server-running-p)
-                      (if-let* ((ec (executable-find "emacsclient")))
-                          (list (concat "EDITOR=" ec))
-                        (message "knayawp: emacsclient not found on PATH; \
+    (if-let* ((existing (get-buffer buf-name)))
+        (progn
+          (with-current-buffer existing
+            (knayawp--claude-panel-mode 1)
+            (when (and knayawp-claude-editor-flag
+                       (not knayawp--claude-editor-env-set))
+              (message "knayawp: EDITOR not set in this Claude buffer; \
+kill it and run knayawp-layout-setup again for editor integration")))
+          existing)
+      (let* ((env-vars
+              (when knayawp-claude-editor-flag
+                (if (server-running-p)
+                    (if-let* ((ec (executable-find "emacsclient")))
+                        (list (concat "EDITOR=" ec))
+                      (message "knayawp: emacsclient not found on PATH; \
 Claude editor integration disabled")
-                        nil)
-                    (message "knayawp: no Emacs server running; \
+                      nil)
+                  (message "knayawp: no Emacs server running; \
 Claude editor integration disabled")
-                    nil)))
-               (buf (knayawp--make-terminal buf-name project-root
-                                            knayawp-claude-command
-                                            env-vars)))
-          (pcase knayawp-terminal-backend
-            ('vterm (knayawp--make-terminal-setup-claude-keymap-vterm buf))
-            ('eat   (knayawp--make-terminal-setup-claude-keymap-eat buf)))
-          buf))))
+                  nil)))
+             (buf (knayawp--make-terminal buf-name project-root
+                                          knayawp-claude-command
+                                          env-vars)))
+        (with-current-buffer buf
+          (knayawp--claude-panel-mode 1)
+          (when env-vars
+            (setq knayawp--claude-editor-env-set t)))
+        buf))))
 
 ;;;; Buffer-to-panel dispatch
 
