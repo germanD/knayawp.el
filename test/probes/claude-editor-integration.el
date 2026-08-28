@@ -69,7 +69,7 @@
         (unwind-protect
             (cl-letf (((symbol-function 'get-buffer)
                        (lambda (_n) nil))
-                      ((symbol-function 'server-running-p)
+                      ((symbol-function 'knayawp--server-live-p)
                        (lambda () t))
                       ((symbol-function 'executable-find)
                        (lambda (_cmd) "/usr/bin/emacsclient"))

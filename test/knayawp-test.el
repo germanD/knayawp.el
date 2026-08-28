@@ -3144,7 +3144,7 @@ emacsclient binary and the -s socket path argument."
         (buf (generate-new-buffer " *knayawp-test-claude-env*")))
     (unwind-protect
         (cl-letf (((symbol-function 'get-buffer) (lambda (_n) nil))
-                  ((symbol-function 'server-running-p) (lambda () t))
+                  ((symbol-function 'knayawp--server-live-p) (lambda () t))
                   ((symbol-function 'executable-find)
                    (lambda (_cmd) "/usr/bin/emacsclient"))
                   ((symbol-function 'knayawp--make-terminal)
@@ -3183,7 +3183,7 @@ emacsclient binary and the -s socket path argument."
         (buf (generate-new-buffer " *knayawp-test-claude-no-server*")))
     (unwind-protect
         (cl-letf (((symbol-function 'get-buffer) (lambda (_n) nil))
-                  ((symbol-function 'server-running-p) (lambda () nil))
+                  ((symbol-function 'knayawp--server-live-p) (lambda () nil))
                   ((symbol-function 'knayawp--make-terminal)
                    (lambda (_name _dir _cmd env-vars)
                      (setq captured-env-vars env-vars)
