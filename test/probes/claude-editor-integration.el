@@ -22,18 +22,16 @@
 ;;   it has been removed.
 ;;
 ;; Note on end-to-end testing:
-;;   The full flow — Claude's prompt editor key triggering emacsclient,
-;;   emacsclient calling server-visit, `server-switch-hook' firing, and
-;;   the buffer landing in the editor pane — requires a live Claude
-;;   session in a real Emacs frame with `server-mode' running.  That
-;;   end-to-end scenario cannot be exercised in batch mode.  Verify it
-;;   manually: start the layout, launch Claude, press the prompt editor
-;;   key, and confirm the temp file opens in the left pane.
-;;
-;; The exact temp file path used by Claude is unknown until first use;
-;; the predicate in `knayawp--claude-editor-server-switch' is
-;; intentionally broad and should be tightened after observing a real
-;; Claude invocation.
+;;   The full flow — pressing the BEL key in the Claude panel, emacsclient
+;;   calling server-visit, `server-switch-hook' firing, and the buffer
+;;   landing in the editor pane — requires a live Claude session in a real
+;;   Emacs frame with `server-mode' running.  That end-to-end scenario
+;;   cannot be exercised in batch mode.  See issue #130 for the plan to
+;;   improve automated coverage.  Manual verification steps:
+;;     1. Ensure `server-mode' is running (M-x server-start).
+;;     2. Run `knayawp-layout-setup'.
+;;     3. Move focus to the Claude panel and press C-g.
+;;     4. Confirm the prompt temp file opens in the left (editor) pane.
 
 ;;; Code:
 
