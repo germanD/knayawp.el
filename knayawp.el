@@ -64,6 +64,7 @@
 (declare-function magit-status-setup-buffer "magit-status")
 (defvar server-name)
 (defvar server-socket-dir)
+(defvar server-process)
 (defvar magit-display-buffer-function)
 (declare-function magit-display-buffer-traditional "magit-mode")
 (defvar git-commit-setup-hook)
@@ -810,7 +811,7 @@ kill it and run knayawp-layout-setup again for editor integration")))
           existing)
       (let* ((env-vars
               (when knayawp-claude-editor-flag
-                (if (server-running-p)
+                (if (knayawp--server-live-p)
                     (if-let* ((ec (executable-find "emacsclient")))
                         (list (concat "EDITOR=" ec " -s "
                                       (shell-quote-argument
@@ -819,8 +820,8 @@ kill it and run knayawp-layout-setup again for editor integration")))
                       (message "knayawp: emacsclient not found on PATH; \
 Claude editor integration disabled")
                       nil)
-                  (message "knayawp: no Emacs server running; \
-Claude editor integration disabled")
+                  (message "knayawp: no Emacs server running in this \
+process; run M-x server-start, then restart the Claude panel")
                   nil)))
              (buf (knayawp--make-terminal buf-name project-root
                                           knayawp-claude-command
@@ -1976,6 +1977,16 @@ recorded entry from `display-buffer-alist' and clear
   (setq knayawp--panel-display-entries nil))
 
 ;;;; Claude editor integration (#121)
+
+(defun knayawp--server-live-p ()
+  "Return non-nil if this Emacs process has a live server.
+Unlike `server-running-p', which tests whether any socket exists at
+the expected path (including sockets owned by daemons or previous
+sessions), this checks `server-process' directly — the process object
+set by `server-start' only when THIS Emacs is the server."
+  (and (boundp 'server-process)
+       (processp server-process)
+       (process-live-p server-process)))
 
 (defun knayawp--claude-editor-server-switch ()
   "Route emacsclient-opened files to the editor pane for Claude.
