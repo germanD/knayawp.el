@@ -811,18 +811,15 @@ kill it and run knayawp-layout-setup again for editor integration")))
           existing)
       (let* ((env-vars
               (when knayawp-claude-editor-flag
-                (if (knayawp--server-live-p)
-                    (if-let* ((ec (executable-find "emacsclient")))
-                        (list (concat "EDITOR=" ec " -s "
-                                      (shell-quote-argument
-                                       (expand-file-name server-name
-                                                         server-socket-dir))))
-                      (message "knayawp: emacsclient not found on PATH; \
+                (let ((socket (knayawp--ensure-editor-server)))
+                  (if socket
+                      (if-let* ((ec (executable-find "emacsclient")))
+                          (list (concat "EDITOR=" ec " -s "
+                                        (shell-quote-argument socket)))
+                        (message "knayawp: emacsclient not found on PATH; \
 Claude editor integration disabled")
-                      nil)
-                  (message "knayawp: no Emacs server running in this \
-process; run M-x server-start, then restart the Claude panel")
-                  nil)))
+                        nil)
+                    nil))))
              (buf (knayawp--make-terminal buf-name project-root
                                           knayawp-claude-command
                                           env-vars)))
@@ -1978,6 +1975,12 @@ recorded entry from `display-buffer-alist' and clear
 
 ;;;; Claude editor integration (#121)
 
+(defconst knayawp--editor-server-name "knayawp"
+  "Name of the Emacs server knayawp starts for Claude editor integration.")
+
+(defvar knayawp--editor-server-socket nil
+  "Socket path of the server knayawp started; nil until first use.")
+
 (defun knayawp--server-live-p ()
   "Return non-nil if this Emacs process has a live server.
 Unlike `server-running-p', which tests whether any socket exists at
@@ -1987,6 +1990,28 @@ set by `server-start' only when THIS Emacs is the server."
   (and (boundp 'server-process)
        (processp server-process)
        (process-live-p server-process)))
+
+(defun knayawp--ensure-editor-server ()
+  "Ensure a live Emacs server exists; return its socket path or nil.
+If this process already has a live server, return that server's socket
+path.  Otherwise start a new server named `knayawp--editor-server-name'
+to avoid conflict with daemon sockets that share the default \\\"server\\\"
+name, and cache the path in `knayawp--editor-server-socket'."
+  (require 'server)
+  (cond
+   ((knayawp--server-live-p)
+    (or knayawp--editor-server-socket
+        (expand-file-name server-name server-socket-dir)))
+   (t
+    (condition-case err
+        (let ((server-name knayawp--editor-server-name))
+          (server-start)
+          (setq knayawp--editor-server-socket
+                (expand-file-name knayawp--editor-server-name
+                                  server-socket-dir)))
+      (error
+       (message "knayawp: could not start Emacs server: %S" err)
+       nil)))))
 
 (defun knayawp--claude-editor-server-switch ()
   "Route emacsclient-opened files to the editor pane for Claude.

@@ -3132,19 +3132,18 @@ the handler must pass them through unchanged."
 
 (ert-deftest knayawp-test-get-or-create-claude-injects-editor-env ()
   "Claude buffer creation passes EDITOR=emacsclient -s SOCKET when flag is set.
-When `knayawp-claude-editor-flag' is t and a server is running,
-`knayawp--get-or-create-claude-buffer' must call `knayawp--make-terminal'
-with an env-vars list containing an EDITOR= entry that includes the
-emacsclient binary and the -s socket path argument."
+When `knayawp-claude-editor-flag' is t and `knayawp--ensure-editor-server'
+returns a socket path, `knayawp--get-or-create-claude-buffer' must call
+`knayawp--make-terminal' with an EDITOR= entry including the emacsclient
+binary and the socket path."
   (let ((knayawp-claude-editor-flag t)
         (knayawp-claude-command "claude")
-        (server-name "server")
-        (server-socket-dir "/tmp/emacs-test")
         (captured-env-vars 'unset)
         (buf (generate-new-buffer " *knayawp-test-claude-env*")))
     (unwind-protect
         (cl-letf (((symbol-function 'get-buffer) (lambda (_n) nil))
-                  ((symbol-function 'knayawp--server-live-p) (lambda () t))
+                  ((symbol-function 'knayawp--ensure-editor-server)
+                   (lambda () "/tmp/emacs-test/knayawp"))
                   ((symbol-function 'executable-find)
                    (lambda (_cmd) "/usr/bin/emacsclient"))
                   ((symbol-function 'knayawp--make-terminal)
@@ -3157,7 +3156,7 @@ emacsclient binary and the -s socket path argument."
           (should (string-prefix-p "EDITOR=" (car captured-env-vars)))
           (should (string-match-p "emacsclient" (car captured-env-vars)))
           (should (string-match-p "-s" (car captured-env-vars)))
-          (should (string-match-p "/tmp/emacs-test/server"
+          (should (string-match-p "/tmp/emacs-test/knayawp"
                                   (car captured-env-vars))))
       (when (buffer-live-p buf) (kill-buffer buf)))))
 
@@ -3177,13 +3176,14 @@ emacsclient binary and the -s socket path argument."
       (when (buffer-live-p buf) (kill-buffer buf)))))
 
 (ert-deftest knayawp-test-get-or-create-claude-no-env-when-no-server ()
-  "No EDITOR injection when no Emacs server is running."
+  "No EDITOR injection when `knayawp--ensure-editor-server' returns nil."
   (let ((knayawp-claude-editor-flag t)
         (captured-env-vars 'unset)
         (buf (generate-new-buffer " *knayawp-test-claude-no-server*")))
     (unwind-protect
         (cl-letf (((symbol-function 'get-buffer) (lambda (_n) nil))
-                  ((symbol-function 'knayawp--server-live-p) (lambda () nil))
+                  ((symbol-function 'knayawp--ensure-editor-server)
+                   (lambda () nil))
                   ((symbol-function 'knayawp--make-terminal)
                    (lambda (_name _dir _cmd env-vars)
                      (setq captured-env-vars env-vars)
@@ -3191,6 +3191,38 @@ emacsclient binary and the -s socket path argument."
           (knayawp--get-or-create-claude-buffer "/fake/" "fake")
           (should (null captured-env-vars)))
       (when (buffer-live-p buf) (kill-buffer buf)))))
+
+(ert-deftest knayawp-test-ensure-editor-server-reuses-live-server ()
+  "`knayawp--ensure-editor-server' returns existing socket when server is live."
+  (let ((server-name "myserver")
+        (server-socket-dir "/run/user/1000/emacs")
+        (knayawp--editor-server-socket nil))
+    (cl-letf (((symbol-function 'knayawp--server-live-p) (lambda () t)))
+      (should (equal "/run/user/1000/emacs/myserver"
+                     (knayawp--ensure-editor-server))))))
+
+(ert-deftest knayawp-test-ensure-editor-server-returns-cached-socket ()
+  "`knayawp--ensure-editor-server' returns cached path when already started."
+  (let ((knayawp--editor-server-socket "/run/user/1000/emacs/knayawp"))
+    (cl-letf (((symbol-function 'knayawp--server-live-p) (lambda () t)))
+      (should (equal "/run/user/1000/emacs/knayawp"
+                     (knayawp--ensure-editor-server))))))
+
+(ert-deftest knayawp-test-ensure-editor-server-starts-own-server ()
+  "`knayawp--ensure-editor-server' starts a knayawp server when none is live."
+  (let ((server-socket-dir "/run/user/1000/emacs")
+        (knayawp--editor-server-socket nil)
+        (started-with-name nil))
+    (cl-letf (((symbol-function 'knayawp--server-live-p) (lambda () nil))
+              ((symbol-function 'require) #'ignore)
+              ((symbol-function 'server-start)
+               (lambda () (setq started-with-name server-name))))
+      (let ((result (knayawp--ensure-editor-server)))
+        (should (equal knayawp--editor-server-name started-with-name))
+        (should (equal (expand-file-name knayawp--editor-server-name
+                                         "/run/user/1000/emacs")
+                       result))
+        (should (equal result knayawp--editor-server-socket))))))
 
 (ert-deftest knayawp-test-teardown-removes-claude-editor-hook ()
   "`knayawp-layout-teardown' unregisters the Claude editor hook."
