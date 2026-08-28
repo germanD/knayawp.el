@@ -69,8 +69,8 @@
         (unwind-protect
             (cl-letf (((symbol-function 'get-buffer)
                        (lambda (_n) nil))
-                      ((symbol-function 'knayawp--server-live-p)
-                       (lambda () t))
+                      ((symbol-function 'knayawp--ensure-editor-server)
+                       (lambda () "/tmp/knayawp-probe/knayawp"))
                       ((symbol-function 'executable-find)
                        (lambda (_cmd) "/usr/bin/emacsclient"))
                       ((symbol-function 'knayawp--make-terminal)
