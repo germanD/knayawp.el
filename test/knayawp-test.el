@@ -2286,98 +2286,97 @@ must no longer be present in `enable-theme-functions'."
                             enable-theme-functions)))
       (knayawp--mode-off))))
 
-(ert-deftest knayawp-test-refresh-panels-calls-toggle-twice ()
-  "Theme refresh handler double-toggles side windows when active.
+(ert-deftest knayawp-test-refresh-panels-calls-force-update ()
+  "Theme refresh handler calls `force-window-update' on each side window.
 When `knayawp-auto-theme-refresh-flag' is t and a layout is active,
-`window-toggle-side-windows' must be called exactly twice per frame."
+`force-window-update' must be called once per side window per frame."
   (let ((knayawp-auto-theme-refresh-flag t)
         (knayawp--active-layouts '((fake-root . t)))
         (knayawp--zoomed-panel nil)
-        (toggle-calls 0))
+        (update-calls 0))
     (cl-letf (((symbol-function 'frame-parameter)
                (lambda (_frame _param) nil))
-              ;; Use the real frame-list so save-selected-window gets a
-              ;; live frame; stub knayawp--side-windows-in-frame to
-              ;; return a non-nil list for whatever frame batch has.
+              ((symbol-function 'frame-list)
+               (lambda () '(fake-frame)))
               ((symbol-function 'knayawp--side-windows-in-frame)
                (lambda (_frame) '(fake-win)))
-              ((symbol-function 'window-toggle-side-windows)
-               (lambda (_frame) (cl-incf toggle-calls))))
+              ((symbol-function 'force-window-update)
+               (lambda (_win) (cl-incf update-calls))))
       (knayawp--refresh-panels-after-theme 'modus-vivendi)
-      ;; Batch mode has exactly one frame; expect 2 calls for that frame.
-      (should (= 2 toggle-calls)))))
+      ;; One fake frame with one fake side window → one call.
+      (should (= 1 update-calls)))))
 
 (ert-deftest knayawp-test-refresh-panels-noop-when-flag-off ()
   "Theme refresh handler is a no-op when the flag is nil."
   (let ((knayawp-auto-theme-refresh-flag nil)
         (knayawp--active-layouts '((fake-root . t)))
         (knayawp--zoomed-panel nil)
-        (toggle-calls 0))
+        (update-calls 0))
     (cl-letf (((symbol-function 'frame-parameter)
                (lambda (_frame _param) nil))
               ((symbol-function 'frame-list)
                (lambda () '(fake-frame)))
               ((symbol-function 'knayawp--side-windows-in-frame)
                (lambda (_frame) '(fake-win)))
-              ((symbol-function 'window-toggle-side-windows)
-               (lambda (_frame) (cl-incf toggle-calls))))
+              ((symbol-function 'force-window-update)
+               (lambda (_win) (cl-incf update-calls))))
       (knayawp--refresh-panels-after-theme 'modus-vivendi)
-      (should (= 0 toggle-calls)))))
+      (should (= 0 update-calls)))))
 
 (ert-deftest knayawp-test-refresh-panels-noop-when-no-layout ()
   "Theme refresh handler is a no-op when no knayawp layout is active."
   (let ((knayawp-auto-theme-refresh-flag t)
         (knayawp--active-layouts nil)
         (knayawp--zoomed-panel nil)
-        (toggle-calls 0))
+        (update-calls 0))
     (cl-letf (((symbol-function 'frame-parameter)
                (lambda (_frame _param) nil))
               ((symbol-function 'frame-list)
                (lambda () '(fake-frame)))
               ((symbol-function 'knayawp--side-windows-in-frame)
                (lambda (_frame) '(fake-win)))
-              ((symbol-function 'window-toggle-side-windows)
-               (lambda (_frame) (cl-incf toggle-calls))))
+              ((symbol-function 'force-window-update)
+               (lambda (_win) (cl-incf update-calls))))
       (knayawp--refresh-panels-after-theme 'modus-operandi)
-      (should (= 0 toggle-calls)))))
+      (should (= 0 update-calls)))))
 
 (ert-deftest knayawp-test-refresh-panels-noop-when-zoomed ()
   "Theme refresh is a no-op when a panel is zoomed.
 `knayawp--zoomed-panel' non-nil means the guard fires and
-`window-toggle-side-windows' must not be called."
+`force-window-update' must not be called."
   (let ((knayawp-auto-theme-refresh-flag t)
         (knayawp--active-layouts '((fake-root . t)))
         (knayawp--zoomed-panel 'terminal)
-        (toggle-calls 0))
+        (update-calls 0))
     (cl-letf (((symbol-function 'frame-parameter)
                (lambda (_frame _param) nil))
               ((symbol-function 'frame-list)
                (lambda () '(fake-frame)))
               ((symbol-function 'knayawp--side-windows-in-frame)
                (lambda (_frame) '(fake-win)))
-              ((symbol-function 'window-toggle-side-windows)
-               (lambda (_frame) (cl-incf toggle-calls))))
+              ((symbol-function 'force-window-update)
+               (lambda (_win) (cl-incf update-calls))))
       (knayawp--refresh-panels-after-theme 'modus-vivendi)
-      (should (= 0 toggle-calls)))))
+      (should (= 0 update-calls)))))
 
 (ert-deftest knayawp-test-refresh-panels-noop-when-monocle ()
   "Theme refresh is a no-op when monocle mode is active.
 The `knayawp--monocle-config' frame parameter being non-nil must
-prevent `window-toggle-side-windows' from being called."
+prevent `force-window-update' from being called."
   (let ((knayawp-auto-theme-refresh-flag t)
         (knayawp--active-layouts '((fake-root . t)))
         (knayawp--zoomed-panel nil)
-        (toggle-calls 0))
+        (update-calls 0))
     (cl-letf (((symbol-function 'frame-parameter)
                (lambda (_frame _param) 'saved-cfg))
               ((symbol-function 'frame-list)
                (lambda () '(fake-frame)))
               ((symbol-function 'knayawp--side-windows-in-frame)
                (lambda (_frame) '(fake-win)))
-              ((symbol-function 'window-toggle-side-windows)
-               (lambda (_frame) (cl-incf toggle-calls))))
+              ((symbol-function 'force-window-update)
+               (lambda (_win) (cl-incf update-calls))))
       (knayawp--refresh-panels-after-theme 'modus-vivendi)
-      (should (= 0 toggle-calls)))))
+      (should (= 0 update-calls)))))
 
 ;;;; Fixup-focus flow (#98)
 

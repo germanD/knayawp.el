@@ -197,9 +197,8 @@ Must be called with `default-directory' set to the sandbox project."
 
 (defun tr--scenario-d ()
   "Scenario D — selected window is preserved across a refresh.
-`window-toggle-side-windows' destroys and recreates side-window
-objects, so we track the vterm buffer and check by slot rather
-than by window identity."
+`force-window-update' does not destroy or recreate window objects,
+so the selected window remains the same live object after the refresh."
   (knayawp-probe-section "SCENARIO D -- focus: selected window unchanged after refresh")
   (condition-case e
       (let ((default-directory (file-name-as-directory sandbox--test-dir)))
