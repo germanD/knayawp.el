@@ -41,6 +41,18 @@ trap cleanup EXIT
 # CI) can write it without needing /tmp/tmux-UID/ access.
 export TMUX_TMPDIR="${TMPDIR:-/tmp}"
 
+# If 'claude' is not on PATH, install a stub that runs /bin/sh so vterm
+# panels stay alive.  Without this, vterm's vterm-kill-buffer-on-exit=t
+# removes the Claude panel window the moment the missing process exits,
+# leaving only 2 side windows instead of the expected 3.
+if ! command -v claude >/dev/null 2>&1; then
+    _stub_dir="${TMPDIR:-/tmp}/knayawp-ci-stubs"
+    mkdir -p "$_stub_dir"
+    printf '#!/bin/sh\nexec /bin/sh\n' > "$_stub_dir/claude"
+    chmod +x "$_stub_dir/claude"
+    export PATH="$_stub_dir:$PATH"
+fi
+
 # Launch Emacs in a fixed-size detached tmux session.  sandbox.el sets up
 # the throwaway project + dependencies; probe-lib.el provides the
 # assertion harness; the probe drives the scenario and writes $RESULTS.
