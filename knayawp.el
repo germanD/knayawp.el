@@ -1543,9 +1543,15 @@ can restore the layout."
   (knayawp--teardown-magit-integration)
   (knayawp--remove-claude-editor-hook)
   (knayawp--remove-visit-routing)
+  ;; Clear any saved toggle configuration so a stale restore cannot fire
+  ;; after teardown (e.g., user tears down while panels are hidden).
+  (set-frame-parameter nil 'knayawp--panels-hidden-config nil)
   (let ((side-windows (knayawp--side-windows)))
     (dolist (win side-windows)
-      (delete-window win)))
+      ;; Use ignore-errors: window-toggle-side-windows may leave the
+      ;; window tree in an inconsistent state on Emacs 29.x -nw builds;
+      ;; delete-window then signals "has not same side".  Skip bad windows.
+      (ignore-errors (delete-window win))))
   ;; Drop this frame's recorded width.  If no other frames still have
   ;; an active layout, remove the global hook altogether.
   (setf (alist-get (selected-frame) knayawp--frame-widths nil 'remove)
@@ -1703,9 +1709,21 @@ If in the editor pane, jump to the last panel."
     (knayawp-select-panel (1+ prev))))
 
 (defun knayawp-toggle-panels ()
-  "Toggle visibility of all side windows."
+  "Toggle visibility of all side windows.
+Hide all side panels and save them so a second call restores them.
+Uses `current-window-configuration' rather than the built-in
+`window-toggle-side-windows', which has a known failure with three
+or more side windows on Emacs 29.x terminal frames."
   (interactive)
-  (window-toggle-side-windows))
+  (let ((saved (frame-parameter nil 'knayawp--panels-hidden-config)))
+    (if saved
+        (progn
+          (set-window-configuration saved)
+          (set-frame-parameter nil 'knayawp--panels-hidden-config nil))
+      (set-frame-parameter nil 'knayawp--panels-hidden-config
+                           (current-window-configuration))
+      (dolist (w (knayawp--side-windows))
+        (delete-window w)))))
 
 (defun knayawp-zoom-panel ()
   "Zoom/unzoom the selected side panel, or exit monocle into zoom.
