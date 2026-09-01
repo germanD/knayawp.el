@@ -55,7 +55,7 @@ jobs:
         with:
           path: ~/.emacs.d/elpa
           # Key on sandbox.el only — knayawp.el changes don't affect package versions.
-          key: elpa-${{ hashFiles('test/sandbox.el') }}
+          key: elpa-${{ hashFiles('test/sandbox.el', '.github/workflows/probes.yml') }}
           restore-keys: |
             elpa-
       - name: Bootstrap ELPA packages
