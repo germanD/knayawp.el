@@ -43,6 +43,13 @@
 ;;;; Bootstrap dependencies
 
 (require 'package)
+;; emacs -Q (used by run-probe.sh) skips site-start.d, which on Debian/Ubuntu
+;; normally adds /usr/share/emacs/site-lisp/elpa to package-directory-list.
+;; Add it explicitly so apt-installed packages (elpa-vterm, elpa-magit, …)
+;; are discoverable even in -Q sessions.
+(let ((system-elpa "/usr/share/emacs/site-lisp/elpa"))
+  (when (file-directory-p system-elpa)
+    (add-to-list 'package-directory-list system-elpa)))
 (package-initialize)
 
 (unless (require 'magit nil t)
