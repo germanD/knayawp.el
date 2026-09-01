@@ -77,11 +77,6 @@
 (setq sandbox--test-dir (make-temp-file "knayawp-sandbox-" t))
 
 (let ((default-directory (file-name-as-directory sandbox--test-dir)))
-  ;; CI: /tmp is owned by root on GitHub Actions runners; git 2.35.2+
-  ;; refuses to operate in directories whose parent it doesn't own unless
-  ;; safe.directory is set.  Set it globally for this process's git calls.
-  (call-process "git" nil nil nil "config" "--global" "--add"
-                "safe.directory" "*")
   (call-process "git" nil nil nil "init")
   (call-process "git" nil nil nil "config" "user.email" "test@sandbox")
   (call-process "git" nil nil nil "config" "user.name" "Sandbox")
