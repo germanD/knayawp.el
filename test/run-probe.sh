@@ -37,9 +37,20 @@ cleanup() {
 }
 trap cleanup EXIT
 
+# Ensure TMPDIR points to a user-owned directory so the git sandbox repo
+# created by sandbox.el has a fully user-owned parent chain.  git 2.38+
+# refuses to operate in repos whose parent directories it does not trust,
+# and on GitHub Actions /tmp is owned by root (uid 0) while the runner
+# user is non-root.  RUNNER_TEMP (set by actions/checkout) is always
+# user-owned; fall back to $HOME/tmp/knayawp-probes otherwise.
+if [ ! -d "${TMPDIR:-/tmp}" ] || [ ! -O "${TMPDIR:-/tmp}" ]; then
+    export TMPDIR="${RUNNER_TEMP:-$HOME/tmp/knayawp-probes}"
+    mkdir -p "$TMPDIR"
+fi
+
 # Route the tmux socket through $TMPDIR so sandboxed environments (agents,
 # CI) can write it without needing /tmp/tmux-UID/ access.
-export TMUX_TMPDIR="${TMPDIR:-/tmp}"
+export TMUX_TMPDIR="${TMPDIR}"
 
 # If 'claude' is not on PATH, install a stub that runs /bin/sh so vterm
 # panels stay alive.  Without this, vterm's vterm-kill-buffer-on-exit=t
