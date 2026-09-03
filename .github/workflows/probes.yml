@@ -3,6 +3,7 @@ name: Probe suite
 on:
   push:
     branches: [main]
+  workflow_dispatch:
     paths:
       - 'knayawp.el'
       - 'test/**'
