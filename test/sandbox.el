@@ -40,6 +40,22 @@
 ;; variable on Emacs 29+.
 (setq server-socket-dir temporary-file-directory)
 
+;;;; Force with-editor sleeping-editor in headless terminal sessions
+;;
+;; In `-nw' probe runs, magit starts `git commit' as an async subprocess with
+;; piped stdin/stdout (not the real TTY).  `with-editor' would use emacsclient
+;; to open COMMIT_EDITMSG, but emacsclient's approach of connecting to the
+;; Emacs server socket does not complete — the server-start/socket path is
+;; fragile in tmux headless CI.  Setting `with-editor-emacsclient-executable'
+;; to nil forces the sleeping-editor mechanism: the script writes to its
+;; stdout (the git process's pipe), `with-editor-process-filter' catches it,
+;; opens COMMIT_EDITMSG, and fires `git-commit-setup-hook'.  No socket needed.
+;; The body runs immediately because `with-editor' is already loaded as a
+;; magit dependency by the time this form is evaluated.
+(with-eval-after-load 'with-editor
+  (when (not (display-graphic-p))
+    (setq with-editor-emacsclient-executable nil)))
+
 ;;;; Bootstrap dependencies
 
 (require 'package)
