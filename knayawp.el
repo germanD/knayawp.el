@@ -62,6 +62,9 @@
 (declare-function eat-term-send-string "eat" (terminal string))
 (defvar eat--input-mode)
 (declare-function magit-status-setup-buffer "magit-status")
+(defvar server-name)
+(defvar server-socket-dir)
+(defvar server-process)
 (defvar magit-display-buffer-function)
 (declare-function magit-display-buffer-traditional "magit-mode")
 (defvar git-commit-setup-hook)
@@ -73,6 +76,7 @@
 (defvar magit-log-select-quit-hook)
 (declare-function magit-mode-get-buffer "magit-mode")
 (declare-function server-running-p "server")
+(declare-function server-edit "server")
 
 ;;;; Customization group
 
@@ -509,6 +513,12 @@ Stored for precise removal.")
 Set by `knayawp--install-claude-editor-hook', cleared by
 `knayawp--remove-claude-editor-hook' so install/remove are idempotent.")
 
+(defvar-local knayawp--claude-editor-env-set nil
+  "Non-nil when EDITOR=emacsclient was injected into this Claude buffer.
+Set at buffer creation time by `knayawp--get-or-create-claude-buffer'
+when the server was running and emacsclient was found on PATH.
+Nil for reused buffers that predate the layout setup.")
+
 ;;;; Project detection
 
 (defun knayawp--project-root ()
@@ -595,36 +605,35 @@ ENV-VARS is an optional list of \"VAR=VALUE\" strings prepended to
         (eat)))
     (get-buffer name)))
 
-;;;; Claude keymap overlays
+;;;; Claude panel minor mode (C-g passthrough)
 
-(defun knayawp--make-terminal-setup-claude-keymap-vterm (buf)
-  "Install a Claude-aware keymap overlay in vterm buffer BUF.
-Overrides the quit key (normally `keyboard-quit') to send a raw
-BEL byte to the Claude process, triggering its open-in-editor
-flow.  The prefix key cannot be intercepted this way; use
-`knayawp-claude-send-ctrl-x' via the command map instead."
-  (with-current-buffer buf
-    (let ((map (make-sparse-keymap)))
-      (set-keymap-parent map (current-local-map))
-      (define-key map (kbd "C-g")
-                  (lambda () (interactive) (vterm-send-string "\C-g")))
-      (use-local-map map))))
+(defun knayawp--claude-panel-send-cg ()
+  "Send BEL to the Claude TUI process.
+Installed by `knayawp--claude-panel-mode'.  Sends the BEL byte
+that triggers Claude's open-in-editor flow instead of invoking
+`keyboard-quit'."
+  (interactive)
+  (pcase knayawp-terminal-backend
+    ('vterm (vterm-send-string "\C-g"))
+    ('eat
+     (when (and (boundp 'eat-terminal) eat-terminal)
+       (eat-term-send-string eat-terminal "\C-g")))))
 
-(defun knayawp--make-terminal-setup-claude-keymap-eat (buf)
-  "Install a Claude-aware keymap overlay in eat buffer BUF.
-Overrides the quit key (normally `keyboard-quit') to send a raw
-BEL byte to the Claude process, triggering its open-in-editor
-flow.  The prefix key cannot be intercepted this way; use
-`knayawp-claude-send-ctrl-x' via the command map instead."
-  (with-current-buffer buf
-    (let* ((map (make-sparse-keymap))
-           (term eat-terminal))
-      (set-keymap-parent map (current-local-map))
-      (define-key map (kbd "C-g")
-                  (lambda ()
-                    (interactive)
-                    (eat-term-send-string term "\C-g")))
-      (use-local-map map))))
+(defvar knayawp--claude-panel-mode-map
+  (let ((map (make-sparse-keymap)))
+    (define-key map (kbd "C-g") #'knayawp--claude-panel-send-cg)
+    map)
+  "Keymap active in `knayawp--claude-panel-mode'.")
+
+(define-minor-mode knayawp--claude-panel-mode
+  "Buffer-local minor mode that passes BEL through to the Claude TUI.
+When active, \\[knayawp--claude-panel-send-cg] sends BEL to the
+Claude process (triggering its open-in-editor flow) instead of
+invoking `keyboard-quit'.  Minor-mode keymaps take precedence over
+the major-mode local map, so this survives vterm `use-local-map'
+calls."
+  :lighter nil
+  :keymap knayawp--claude-panel-mode-map)
 
 ;;;; Terminal copy/paste dispatch
 
@@ -778,31 +787,48 @@ Create one via `knayawp--make-terminal' if needed."
   "Return a Claude Code buffer for PROJECT-ROOT.
 PROJECT-NAME is used for the buffer name.  Create one via
 `knayawp--make-terminal' with `knayawp-claude-command'.
-When `knayawp-claude-editor-flag' is non-nil and an Emacs server
-is running, EDITOR=emacsclient is injected into the terminal
-process environment so Claude's edit-prompt flow opens the temp
-file via `emacsclient', which our `server-switch-hook' handler
-then routes to the editor pane."
+
+For new buffers: when `knayawp-claude-editor-flag' is non-nil and
+an Emacs server is running, EDITOR=emacsclient with an explicit
+-s socket path is injected into the terminal process environment.
+This pins emacsclient to this Emacs process rather than any daemon
+sharing the default socket, so Claude's edit-prompt flow opens the
+temp file here and our `server-switch-hook' handler routes it to
+the editor pane.
+
+For reused buffers: `knayawp--claude-panel-mode' is (re-)enabled so
+BEL passthrough is active.  If EDITOR was not injected at creation
+time, a message is emitted explaining that the panel must be
+restarted for editor integration."
   (let ((buf-name (knayawp--buffer-name 'claude project-name)))
-    (or (get-buffer buf-name)
-        (let* ((env-vars
-                (when knayawp-claude-editor-flag
-                  (if (server-running-p)
+    (if-let* ((existing (get-buffer buf-name)))
+        (progn
+          (with-current-buffer existing
+            (knayawp--claude-panel-mode 1)
+            (when (and knayawp-claude-editor-flag
+                       (not knayawp--claude-editor-env-set))
+              (message "knayawp: EDITOR not set in this Claude buffer; \
+kill it and run knayawp-layout-setup again for editor integration")))
+          existing)
+      (let* ((env-vars
+              (when knayawp-claude-editor-flag
+                (let ((socket (knayawp--ensure-editor-server)))
+                  (if socket
                       (if-let* ((ec (executable-find "emacsclient")))
-                          (list (concat "EDITOR=" ec))
+                          (list (concat "EDITOR=" ec " -s "
+                                        (shell-quote-argument socket)))
                         (message "knayawp: emacsclient not found on PATH; \
 Claude editor integration disabled")
                         nil)
-                    (message "knayawp: no Emacs server running; \
-Claude editor integration disabled")
-                    nil)))
-               (buf (knayawp--make-terminal buf-name project-root
-                                            knayawp-claude-command
-                                            env-vars)))
-          (pcase knayawp-terminal-backend
-            ('vterm (knayawp--make-terminal-setup-claude-keymap-vterm buf))
-            ('eat   (knayawp--make-terminal-setup-claude-keymap-eat buf)))
-          buf))))
+                    nil))))
+             (buf (knayawp--make-terminal buf-name project-root
+                                          knayawp-claude-command
+                                          env-vars)))
+        (with-current-buffer buf
+          (knayawp--claude-panel-mode 1)
+          (when env-vars
+            (setq knayawp--claude-editor-env-set t)))
+        buf))))
 
 ;;;; Buffer-to-panel dispatch
 
@@ -1517,9 +1543,15 @@ can restore the layout."
   (knayawp--teardown-magit-integration)
   (knayawp--remove-claude-editor-hook)
   (knayawp--remove-visit-routing)
+  ;; Clear any saved toggle configuration so a stale restore cannot fire
+  ;; after teardown (e.g., user tears down while panels are hidden).
+  (set-frame-parameter nil 'knayawp--panels-hidden-config nil)
   (let ((side-windows (knayawp--side-windows)))
     (dolist (win side-windows)
-      (delete-window win)))
+      ;; Use ignore-errors: window-toggle-side-windows may leave the
+      ;; window tree in an inconsistent state on Emacs 29.x -nw builds;
+      ;; delete-window then signals "has not same side".  Skip bad windows.
+      (ignore-errors (delete-window win))))
   ;; Drop this frame's recorded width.  If no other frames still have
   ;; an active layout, remove the global hook altogether.
   (setf (alist-get (selected-frame) knayawp--frame-widths nil 'remove)
@@ -1677,9 +1709,21 @@ If in the editor pane, jump to the last panel."
     (knayawp-select-panel (1+ prev))))
 
 (defun knayawp-toggle-panels ()
-  "Toggle visibility of all side windows."
+  "Toggle visibility of all side windows.
+Hide all side panels and save them so a second call restores them.
+Uses `current-window-configuration' rather than the built-in
+`window-toggle-side-windows', which has a known failure with three
+or more side windows on Emacs 29.x terminal frames."
   (interactive)
-  (window-toggle-side-windows))
+  (let ((saved (frame-parameter nil 'knayawp--panels-hidden-config)))
+    (if saved
+        (progn
+          (set-window-configuration saved)
+          (set-frame-parameter nil 'knayawp--panels-hidden-config nil))
+      (set-frame-parameter nil 'knayawp--panels-hidden-config
+                           (current-window-configuration))
+      (dolist (w (knayawp--side-windows))
+        (delete-window w)))))
 
 (defun knayawp-zoom-panel ()
   "Zoom/unzoom the selected side panel, or exit monocle into zoom.
@@ -1950,6 +1994,54 @@ recorded entry from `display-buffer-alist' and clear
 
 ;;;; Claude editor integration (#121)
 
+(defconst knayawp--editor-server-name "knayawp"
+  "Name of the Emacs server knayawp starts for Claude editor integration.")
+
+(defvar knayawp--editor-server-socket nil
+  "Socket path of the server knayawp started; nil until first use.")
+
+(defun knayawp--server-live-p ()
+  "Return non-nil if this Emacs process has a live server.
+Unlike `server-running-p', which tests whether any socket exists at
+the expected path (including sockets owned by daemons or previous
+sessions), this checks `server-process' directly — the process object
+set by `server-start' only when THIS Emacs is the server."
+  (if (and (boundp 'server-process)
+           (processp server-process)
+           (process-live-p server-process))
+      t nil))
+
+(defun knayawp--ensure-editor-server ()
+  "Ensure a live Emacs server exists; return its socket path or nil.
+If this process already has a live server, return that server's socket
+path.  Otherwise start a new server named `knayawp--editor-server-name'
+to avoid conflict with daemon sockets that share the default \\\"server\\\"
+name, and cache the path in `knayawp--editor-server-socket'."
+  (require 'server)
+  (cond
+   ((knayawp--server-live-p)
+    (or knayawp--editor-server-socket
+        (expand-file-name server-name server-socket-dir)))
+   (t
+    (condition-case err
+        (let ((server-name knayawp--editor-server-name))
+          (server-start)
+          (setq knayawp--editor-server-socket
+                (expand-file-name knayawp--editor-server-name
+                                  server-socket-dir)))
+      (error
+       (message "knayawp: could not start Emacs server: %S" err)
+       nil)))))
+
+(defun knayawp--claude-edit-finish ()
+  "Save the Claude edit buffer and signal done to emacsclient.
+Saves before calling `server-edit' so Emacs does not prompt to save a
+modified buffer — the same approach used by `with-editor-finish' in
+magit."
+  (interactive)
+  (save-buffer)
+  (server-edit))
+
 (defun knayawp--claude-editor-server-switch ()
   "Route emacsclient-opened files to the editor pane for Claude.
 Added to `server-switch-hook' with APPEND so it runs after magit's
@@ -1975,7 +2067,12 @@ non-Claude emacsclient opens unexpectedly."
              (not (knayawp--commit-flow-active-p)))
     (let ((buf (current-buffer)))
       (set-window-buffer knayawp--editor-window buf)
-      (select-window knayawp--editor-window))))
+      (select-window knayawp--editor-window)
+      (with-current-buffer buf
+        (setq-local header-line-format
+                    "Claude edit — C-c C-c or C-x # to finish, then return to Claude panel")
+        (local-set-key (kbd "C-c C-c") #'knayawp--claude-edit-finish)
+        (local-set-key (kbd "C-x #") #'knayawp--claude-edit-finish)))))
 
 (defun knayawp--install-claude-editor-hook ()
   "Register `knayawp--claude-editor-server-switch' on `server-switch-hook'.
@@ -2056,33 +2153,13 @@ Forces vterm buffers to re-render with the new theme colors."
              knayawp--active-layouts
              (not knayawp--zoomed-panel)
              (not (frame-parameter nil 'knayawp--monocle-config)))
-    ;; `window-toggle-side-windows' uses `window-state-put' to restore
-    ;; side windows, which may assign fresh window objects rather than
-    ;; reusing the live ones that `save-selected-window' captured.
-    ;; Track focus by buffer+slot before the toggle and re-select by
-    ;; slot after restoration so the user stays in the same panel.
-    (let* ((sel (selected-window))
-           (sel-buf (window-buffer sel))
-           (sel-slot (window-parameter sel 'window-slot))
-           (sel-side (window-parameter sel 'window-side)))
-      (dolist (frame (frame-list))
-        (when (knayawp--side-windows-in-frame frame)
-          (condition-case nil
-              (progn
-                (window-toggle-side-windows frame)
-                (window-toggle-side-windows frame))
-            (error nil))))
-      ;; Re-select the side window at the same slot when the selected
-      ;; window was a side window before the refresh.
-      (when sel-side
-        (let ((restored-win
-               (seq-find
-                (lambda (w)
-                  (and (eq (window-parameter w 'window-slot) sel-slot)
-                       (eq (window-buffer w) sel-buf)))
-                (knayawp--side-windows-in-frame (selected-frame)))))
-          (when (window-live-p restored-win)
-            (select-window restored-win)))))))
+    ;; `force-window-update' marks each side window for redisplay without
+    ;; destroying or recreating window objects.  This avoids the Emacs 29.x
+    ;; -nw bug where `window-toggle-side-windows' with three or more side
+    ;; windows corrupts the window tree.
+    (dolist (frame (frame-list))
+      (dolist (w (knayawp--side-windows-in-frame frame))
+        (force-window-update w)))))
 
 (defvar knayawp--saved-project-switch-commands :unset
   "Saved value of `project-switch-commands' for restoration.

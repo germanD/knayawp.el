@@ -48,11 +48,11 @@
 
 (defun toggle--teardown-layout ()
   "Tear down the layout; restore side windows first if hidden."
-  ;; `window-toggle-side-windows' stores a flag on the frame when panels
-  ;; are hidden.  Restoring them before teardown avoids leaving orphaned
-  ;; saved-state behind.
-  (when (frame-parameter nil 'window-sides-main-selected-window)
-    (window-toggle-side-windows)
+  ;; knayawp-toggle-panels stores the saved window configuration under
+  ;; knayawp--panels-hidden-config.  Restore before teardown so
+  ;; knayawp-layout-teardown sees the full layout.
+  (when (frame-parameter nil 'knayawp--panels-hidden-config)
+    (knayawp-toggle-panels)
     (toggle--settle))
   (when (frame-parameter nil 'knayawp--monocle-config)
     (knayawp-monocle-panel)

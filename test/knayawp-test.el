@@ -11,6 +11,11 @@
 (require 'ert)
 (require 'knayawp)
 
+;; Declare server.el variables as special so let-bindings in tests are
+;; dynamic and visible inside called functions (lexical-binding is on).
+(defvar server-name)
+(defvar server-socket-dir)
+
 ;;;; Project name derivation
 
 (ert-deftest knayawp-test-project-name-simple ()
@@ -2281,98 +2286,97 @@ must no longer be present in `enable-theme-functions'."
                             enable-theme-functions)))
       (knayawp--mode-off))))
 
-(ert-deftest knayawp-test-refresh-panels-calls-toggle-twice ()
-  "Theme refresh handler double-toggles side windows when active.
+(ert-deftest knayawp-test-refresh-panels-calls-force-update ()
+  "Theme refresh handler calls `force-window-update' on each side window.
 When `knayawp-auto-theme-refresh-flag' is t and a layout is active,
-`window-toggle-side-windows' must be called exactly twice per frame."
+`force-window-update' must be called once per side window per frame."
   (let ((knayawp-auto-theme-refresh-flag t)
         (knayawp--active-layouts '((fake-root . t)))
         (knayawp--zoomed-panel nil)
-        (toggle-calls 0))
+        (update-calls 0))
     (cl-letf (((symbol-function 'frame-parameter)
                (lambda (_frame _param) nil))
-              ;; Use the real frame-list so save-selected-window gets a
-              ;; live frame; stub knayawp--side-windows-in-frame to
-              ;; return a non-nil list for whatever frame batch has.
+              ((symbol-function 'frame-list)
+               (lambda () '(fake-frame)))
               ((symbol-function 'knayawp--side-windows-in-frame)
                (lambda (_frame) '(fake-win)))
-              ((symbol-function 'window-toggle-side-windows)
-               (lambda (_frame) (cl-incf toggle-calls))))
+              ((symbol-function 'force-window-update)
+               (lambda (_win) (cl-incf update-calls))))
       (knayawp--refresh-panels-after-theme 'modus-vivendi)
-      ;; Batch mode has exactly one frame; expect 2 calls for that frame.
-      (should (= 2 toggle-calls)))))
+      ;; One fake frame with one fake side window → one call.
+      (should (= 1 update-calls)))))
 
 (ert-deftest knayawp-test-refresh-panels-noop-when-flag-off ()
   "Theme refresh handler is a no-op when the flag is nil."
   (let ((knayawp-auto-theme-refresh-flag nil)
         (knayawp--active-layouts '((fake-root . t)))
         (knayawp--zoomed-panel nil)
-        (toggle-calls 0))
+        (update-calls 0))
     (cl-letf (((symbol-function 'frame-parameter)
                (lambda (_frame _param) nil))
               ((symbol-function 'frame-list)
                (lambda () '(fake-frame)))
               ((symbol-function 'knayawp--side-windows-in-frame)
                (lambda (_frame) '(fake-win)))
-              ((symbol-function 'window-toggle-side-windows)
-               (lambda (_frame) (cl-incf toggle-calls))))
+              ((symbol-function 'force-window-update)
+               (lambda (_win) (cl-incf update-calls))))
       (knayawp--refresh-panels-after-theme 'modus-vivendi)
-      (should (= 0 toggle-calls)))))
+      (should (= 0 update-calls)))))
 
 (ert-deftest knayawp-test-refresh-panels-noop-when-no-layout ()
   "Theme refresh handler is a no-op when no knayawp layout is active."
   (let ((knayawp-auto-theme-refresh-flag t)
         (knayawp--active-layouts nil)
         (knayawp--zoomed-panel nil)
-        (toggle-calls 0))
+        (update-calls 0))
     (cl-letf (((symbol-function 'frame-parameter)
                (lambda (_frame _param) nil))
               ((symbol-function 'frame-list)
                (lambda () '(fake-frame)))
               ((symbol-function 'knayawp--side-windows-in-frame)
                (lambda (_frame) '(fake-win)))
-              ((symbol-function 'window-toggle-side-windows)
-               (lambda (_frame) (cl-incf toggle-calls))))
+              ((symbol-function 'force-window-update)
+               (lambda (_win) (cl-incf update-calls))))
       (knayawp--refresh-panels-after-theme 'modus-operandi)
-      (should (= 0 toggle-calls)))))
+      (should (= 0 update-calls)))))
 
 (ert-deftest knayawp-test-refresh-panels-noop-when-zoomed ()
   "Theme refresh is a no-op when a panel is zoomed.
 `knayawp--zoomed-panel' non-nil means the guard fires and
-`window-toggle-side-windows' must not be called."
+`force-window-update' must not be called."
   (let ((knayawp-auto-theme-refresh-flag t)
         (knayawp--active-layouts '((fake-root . t)))
         (knayawp--zoomed-panel 'terminal)
-        (toggle-calls 0))
+        (update-calls 0))
     (cl-letf (((symbol-function 'frame-parameter)
                (lambda (_frame _param) nil))
               ((symbol-function 'frame-list)
                (lambda () '(fake-frame)))
               ((symbol-function 'knayawp--side-windows-in-frame)
                (lambda (_frame) '(fake-win)))
-              ((symbol-function 'window-toggle-side-windows)
-               (lambda (_frame) (cl-incf toggle-calls))))
+              ((symbol-function 'force-window-update)
+               (lambda (_win) (cl-incf update-calls))))
       (knayawp--refresh-panels-after-theme 'modus-vivendi)
-      (should (= 0 toggle-calls)))))
+      (should (= 0 update-calls)))))
 
 (ert-deftest knayawp-test-refresh-panels-noop-when-monocle ()
   "Theme refresh is a no-op when monocle mode is active.
 The `knayawp--monocle-config' frame parameter being non-nil must
-prevent `window-toggle-side-windows' from being called."
+prevent `force-window-update' from being called."
   (let ((knayawp-auto-theme-refresh-flag t)
         (knayawp--active-layouts '((fake-root . t)))
         (knayawp--zoomed-panel nil)
-        (toggle-calls 0))
+        (update-calls 0))
     (cl-letf (((symbol-function 'frame-parameter)
                (lambda (_frame _param) 'saved-cfg))
               ((symbol-function 'frame-list)
                (lambda () '(fake-frame)))
               ((symbol-function 'knayawp--side-windows-in-frame)
                (lambda (_frame) '(fake-win)))
-              ((symbol-function 'window-toggle-side-windows)
-               (lambda (_frame) (cl-incf toggle-calls))))
+              ((symbol-function 'force-window-update)
+               (lambda (_win) (cl-incf update-calls))))
       (knayawp--refresh-panels-after-theme 'modus-vivendi)
-      (should (= 0 toggle-calls)))))
+      (should (= 0 update-calls)))))
 
 ;;;; Fixup-focus flow (#98)
 
@@ -3126,17 +3130,19 @@ the handler must pass them through unchanged."
       (should (= 0 touched)))))
 
 (ert-deftest knayawp-test-get-or-create-claude-injects-editor-env ()
-  "Claude buffer creation passes EDITOR=emacsclient when flag is set.
-When `knayawp-claude-editor-flag' is t and a server is running,
-`knayawp--get-or-create-claude-buffer' must call `knayawp--make-terminal'
-with an env-vars list that contains an EDITOR= entry."
+  "Claude buffer creation passes EDITOR=emacsclient -s SOCKET when flag is set.
+When `knayawp-claude-editor-flag' is t and `knayawp--ensure-editor-server'
+returns a socket path, `knayawp--get-or-create-claude-buffer' must call
+`knayawp--make-terminal' with an EDITOR= entry including the emacsclient
+binary and the socket path."
   (let ((knayawp-claude-editor-flag t)
         (knayawp-claude-command "claude")
         (captured-env-vars 'unset)
         (buf (generate-new-buffer " *knayawp-test-claude-env*")))
     (unwind-protect
         (cl-letf (((symbol-function 'get-buffer) (lambda (_n) nil))
-                  ((symbol-function 'server-running-p) (lambda () t))
+                  ((symbol-function 'knayawp--ensure-editor-server)
+                   (lambda () "/tmp/emacs-test/knayawp"))
                   ((symbol-function 'executable-find)
                    (lambda (_cmd) "/usr/bin/emacsclient"))
                   ((symbol-function 'knayawp--make-terminal)
@@ -3147,7 +3153,10 @@ with an env-vars list that contains an EDITOR= entry."
           (should (listp captured-env-vars))
           (should (= 1 (length captured-env-vars)))
           (should (string-prefix-p "EDITOR=" (car captured-env-vars)))
-          (should (string-match-p "emacsclient" (car captured-env-vars))))
+          (should (string-match-p "emacsclient" (car captured-env-vars)))
+          (should (string-match-p "-s" (car captured-env-vars)))
+          (should (string-match-p "/tmp/emacs-test/knayawp"
+                                  (car captured-env-vars))))
       (when (buffer-live-p buf) (kill-buffer buf)))))
 
 (ert-deftest knayawp-test-get-or-create-claude-no-env-when-flag-off ()
@@ -3166,13 +3175,14 @@ with an env-vars list that contains an EDITOR= entry."
       (when (buffer-live-p buf) (kill-buffer buf)))))
 
 (ert-deftest knayawp-test-get-or-create-claude-no-env-when-no-server ()
-  "No EDITOR injection when no Emacs server is running."
+  "No EDITOR injection when `knayawp--ensure-editor-server' returns nil."
   (let ((knayawp-claude-editor-flag t)
         (captured-env-vars 'unset)
         (buf (generate-new-buffer " *knayawp-test-claude-no-server*")))
     (unwind-protect
         (cl-letf (((symbol-function 'get-buffer) (lambda (_n) nil))
-                  ((symbol-function 'server-running-p) (lambda () nil))
+                  ((symbol-function 'knayawp--ensure-editor-server)
+                   (lambda () nil))
                   ((symbol-function 'knayawp--make-terminal)
                    (lambda (_name _dir _cmd env-vars)
                      (setq captured-env-vars env-vars)
@@ -3180,6 +3190,38 @@ with an env-vars list that contains an EDITOR= entry."
           (knayawp--get-or-create-claude-buffer "/fake/" "fake")
           (should (null captured-env-vars)))
       (when (buffer-live-p buf) (kill-buffer buf)))))
+
+(ert-deftest knayawp-test-ensure-editor-server-reuses-live-server ()
+  "`knayawp--ensure-editor-server' returns existing socket when server is live."
+  (let ((server-name "myserver")
+        (server-socket-dir "/run/user/1000/emacs")
+        (knayawp--editor-server-socket nil))
+    (cl-letf (((symbol-function 'knayawp--server-live-p) (lambda () t)))
+      (should (equal "/run/user/1000/emacs/myserver"
+                     (knayawp--ensure-editor-server))))))
+
+(ert-deftest knayawp-test-ensure-editor-server-returns-cached-socket ()
+  "`knayawp--ensure-editor-server' returns cached path when already started."
+  (let ((knayawp--editor-server-socket "/run/user/1000/emacs/knayawp"))
+    (cl-letf (((symbol-function 'knayawp--server-live-p) (lambda () t)))
+      (should (equal "/run/user/1000/emacs/knayawp"
+                     (knayawp--ensure-editor-server))))))
+
+(ert-deftest knayawp-test-ensure-editor-server-starts-own-server ()
+  "`knayawp--ensure-editor-server' starts a knayawp server when none is live."
+  (let ((server-socket-dir "/run/user/1000/emacs")
+        (knayawp--editor-server-socket nil)
+        (started-with-name nil))
+    (cl-letf (((symbol-function 'knayawp--server-live-p) (lambda () nil))
+              ((symbol-function 'require) #'ignore)
+              ((symbol-function 'server-start)
+               (lambda () (setq started-with-name server-name))))
+      (let ((result (knayawp--ensure-editor-server)))
+        (should (equal knayawp--editor-server-name started-with-name))
+        (should (equal (expand-file-name knayawp--editor-server-name
+                                         "/run/user/1000/emacs")
+                       result))
+        (should (equal result knayawp--editor-server-socket))))))
 
 (ert-deftest knayawp-test-teardown-removes-claude-editor-hook ()
   "`knayawp-layout-teardown' unregisters the Claude editor hook."
