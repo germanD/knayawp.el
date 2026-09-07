@@ -235,6 +235,7 @@ Resolved design decisions:
 ### v0.1.6 — Keymap Hygiene
 
 - [ ] chore: audit knayawp command-map bindings for conflicts with common packages — #128
+- [ ] ci: update GitHub Actions to drop deprecated Node.js 20 runner — #134
 
 ---
 
