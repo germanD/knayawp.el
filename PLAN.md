@@ -193,7 +193,7 @@ Resolved design decisions:
 - [x] Handle edge cases: frame too narrow (skip right panels), missing magit/vterm — #30
 - [x] Magit transient buffers escape side window containment during commit — #48
 - [x] C-x o cycles into side windows despite no-other-window parameter — #49
-- [x] Side pane width not preserved after frame resize — #50
+- [x] Side pane width not preserved after frame resize —I #50
 - [x] Commit flow: focus should land on COMMIT_EDITMSG, not diff — #53
 - [x] `knayawp--mode-off` can clobber user-set `project-switch-commands` — #60
 - [x] Add `kb/` entry for `knayawp-mode` project-switch integration — #61
@@ -230,12 +230,16 @@ Resolved design decisions:
 - [x] fix: pass C-g and C-x through to Claude TUI in vterm/eat panels — #120
 - [x] feat: C-g in Claude panel opens prompt editor as Emacs buffer in editor pane — #121
 - [x] fix: C-g sends BEL not ESC to Claude TUI; add C-c k C-x for Control-x passthrough — #127
+- [x] bug: C-g interception and EDITOR injection skipped for reused Claude buffers — #129
 - [ ] bug: C-c k y (paste to terminal) errors when terminal is zoomed away — #132
 
 ### v0.1.6 — Keymap Hygiene
 
 - [ ] chore: audit knayawp command-map bindings for conflicts with common packages — #128
 - [ ] ci: update GitHub Actions to drop deprecated Node.js 20 runner — #134
+- [ ] infra: Claude editor integration has no end-to-end test coverage — design automated path — #130
+- [ ] feat: add knayawp-claude-edit-style (route temp file into Claude panel, restore on done) — #133
+- [ ] feat: return focus to Claude panel after C-c C-c in prompt editor — #135
 
 ---
 
