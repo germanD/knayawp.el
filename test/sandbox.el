@@ -29,16 +29,19 @@
 
 ;;; Code:
 
-;;;; Route emacs-server socket through $TMPDIR
+;;;; Route emacs-server socket through a safe user-specific directory
 ;;
 ;; `with-editor' (used by magit) starts an Emacs server to communicate with
-;; the commit-message editor.  The default socket directory is
-;; `/tmp/emacs<UID>/', which is not writable in agent sandboxes.  Override
-;; it early — before `with-editor' loads — so the socket lands in
-;; `temporary-file-directory' (already set to a sandbox-writable path by the
-;; harness, e.g. /tmp/claude-1000).  `server-auth-dir' follows the same
-;; variable on Emacs 29+.
-(setq server-socket-dir temporary-file-directory)
+;; the commit-message editor.  The server rejects any socket directory that
+;; is world-writable (e.g. bare `/tmp'), so we always use a user-specific
+;; subdirectory with mode 700.  In agent sandboxes `temporary-file-directory'
+;; is already a writable path like `/tmp/claude-1000'; in interactive sessions
+;; it is `/tmp'.  Either way, nesting under `emacs<UID>/' gives a safe home.
+(let ((safe-dir (expand-file-name (format "emacs%d" (user-uid))
+                                  temporary-file-directory)))
+  (make-directory safe-dir t)
+  (set-file-modes safe-dir #o700)
+  (setq server-socket-dir safe-dir))
 
 ;;;; Bootstrap dependencies
 
