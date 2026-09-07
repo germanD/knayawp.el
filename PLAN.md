@@ -193,7 +193,7 @@ Resolved design decisions:
 - [x] Handle edge cases: frame too narrow (skip right panels), missing magit/vterm — #30
 - [x] Magit transient buffers escape side window containment during commit — #48
 - [x] C-x o cycles into side windows despite no-other-window parameter — #49
-- [x] Side pane width not preserved after frame resize —I #50
+- [x] Side pane width not preserved after frame resize — #50
 - [x] Commit flow: focus should land on COMMIT_EDITMSG, not diff — #53
 - [x] `knayawp--mode-off` can clobber user-set `project-switch-commands` — #60
 - [x] Add `kb/` entry for `knayawp-mode` project-switch integration — #61
