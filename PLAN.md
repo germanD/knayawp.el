@@ -240,6 +240,12 @@ Resolved design decisions:
 - [ ] infra: Claude editor integration has no end-to-end test coverage — design automated path — #130
 - [ ] feat: add knayawp-claude-edit-style (route temp file into Claude panel, restore on done) — #133
 - [ ] feat: return focus to Claude panel after C-c C-c in prompt editor — #135
+- [ ] ci: pin runs-on to ubuntu-24.04 to prevent silent OS upgrades — #136
+- [ ] ci: add sanity preflight that verifies ELPA packages load in -Q mode — #137
+- [ ] ci: extract ELPA bootstrap to test/bootstrap-elpa.sh shared by workflow and local dev — #138
+- [ ] docs: document Emacs 29 -nw window-toggle-side-windows bug in probe-lib teardown — #139
+- [ ] ci: add emacs/git/tmux version diagnostic step to probe job — #140
+- [ ] test: ERT asserting sleeping-editor is selected in non-graphic with-editor sessions — #141
 
 ---
 
@@ -292,6 +298,7 @@ Emacs 27+ `tab-bar-mode` is the natural fit — each tab can represent a project
 - [ ] feat: direct vterm injection for send-to-Claude (requires prompt detection) — #116
 - [ ] kb: stub KB entries for filenotify overlay, Claude notification, send-to-Claude — #117
 - [ ] ci: integrate probe harness into CI/CD pipeline — #125
+- [ ] research: investigate whether Emacs 30 fixes -nw window-toggle-side-windows tree corruption — #142
 
 ### v0.2.1 — Visual Navigation Bar
 - [ ] Customize `tab-bar-format` to show project names prominently
