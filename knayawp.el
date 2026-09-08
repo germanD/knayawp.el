@@ -690,6 +690,9 @@ If the currently selected window is a terminal panel, return it.
 Otherwise return the first available terminal panel window.
 Signal `user-error' when no terminal panel window exists."
   (let ((wins (knayawp--terminal-panel-windows)))
+    (when (and (not wins) knayawp--zoomed-panel)
+      (user-error "Terminal panel hidden — unzoom first with %s"
+                  (substitute-command-keys "\\[knayawp-zoom-panel]")))
     (unless wins
       (user-error "No terminal panel window — run knayawp-layout-setup first"))
     (or (seq-find (lambda (w) (eq w (selected-window))) wins)
@@ -744,6 +747,65 @@ through to the Claude process instead."
       ('eat  (knayawp--make-terminal-send-string-eat   win "\C-x"))
       (_ (user-error "Unknown terminal backend: %s"
                      knayawp-terminal-backend)))))
+
+;;;###autoload
+(defun knayawp-send-to-claude (arg)
+  "Send a reference or selection to the Claude panel.
+With region active and no prefix ARG, construct a file reference
+of the form @FILE:LN-LM (or @FILE:LN for a single line) using the
+project-relative path and the region line numbers, prompt for an
+optional message pre-filled with the reference, and push the
+result to the kill ring.
+
+With region active and prefix ARG (\\[universal-argument]), embed
+the selected text in a fenced code block using the file extension
+as the language tag, prompt for a message pre-filled with the
+block, and push the result to the kill ring.
+
+With no region (either prefix), construct @FILE with no line
+numbers, prompt, and push to the kill ring.
+
+After pushing to the kill ring, select the Claude panel window so
+the user can yank directly into the running Claude session.
+
+Signal `user-error' when the current buffer has no file or when
+the Claude panel is not available."
+  (interactive "P")
+  (unless buffer-file-name
+    (user-error "Buffer has no file"))
+  (let* ((file buffer-file-name)
+         (proj (project-current))
+         (root (and proj (project-root proj)))
+         (rel  (if root
+                   (file-relative-name file root)
+                 (file-name-nondirectory file)))
+         (has-region (use-region-p))
+         (reference
+          (cond
+           ((and has-region (not arg))
+            (let* ((beg (region-beginning))
+                   (end (region-end))
+                   (lbeg (line-number-at-pos beg))
+                   (lend (line-number-at-pos end)))
+              (if (= lbeg lend)
+                  (format "@%s:L%d" rel lbeg)
+                (format "@%s:L%d-L%d" rel lbeg lend))))
+           ((and has-region arg)
+            (let* ((ext (or (file-name-extension file) ""))
+                   (text (buffer-substring-no-properties
+                          (region-beginning) (region-end))))
+              (format "```%s\n%s```" ext text)))
+           (t
+            (format "@%s" rel))))
+         (prompt (read-string "Send to Claude: " reference))
+         (spec (assq 'claude knayawp-panels))
+         (win  (and spec
+                    (knayawp--side-window-for-slot
+                     (knayawp--panel-slot spec)))))
+    (kill-new prompt)
+    (unless win
+      (user-error "No Claude panel — run knayawp-layout-setup first"))
+    (select-window win)))
 
 ;;;; Buffer creation helpers
 
@@ -1873,6 +1935,7 @@ key."
   (define-key map " " #'knayawp-terminal-copy-mode)
   (define-key map "y" #'knayawp-terminal-yank)
   (define-key map (kbd "C-x") #'knayawp-claude-send-ctrl-x)
+  (define-key map "c" #'knayawp-send-to-claude)
   map)
 
 (defun knayawp--build-command-map ()
