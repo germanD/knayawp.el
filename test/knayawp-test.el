@@ -3240,4 +3240,84 @@ binary and the socket path."
     (should remove-called)
     (should-not knayawp--claude-editor-hook-installed)))
 
+;;;; Claude edit finish / abort / select-window (#135, #143)
+
+(ert-deftest knayawp-test-claude-edit-select-window-selects-claude ()
+  "`knayawp--claude-edit-select-window' selects the Claude side window."
+  (let* ((fake-win (selected-window))
+         (selected nil)
+         (knayawp-panels '((magit :slot -1) (vterm :slot 0) (claude :slot 1))))
+    (cl-letf (((symbol-function 'knayawp--side-window-for-slot)
+               (lambda (_slot) fake-win))
+              ((symbol-function 'window-live-p) (lambda (_w) t))
+              ((symbol-function 'select-window)
+               (lambda (win &optional _nr) (setq selected win))))
+      (knayawp--claude-edit-select-window)
+      (should (eq selected fake-win)))))
+
+(ert-deftest knayawp-test-claude-edit-select-window-noop-when-no-window ()
+  "`knayawp--claude-edit-select-window' is a no-op when Claude window is absent."
+  (let ((selected nil)
+        (knayawp-panels '((magit :slot -1) (vterm :slot 0) (claude :slot 1))))
+    (cl-letf (((symbol-function 'knayawp--side-window-for-slot)
+               (lambda (_slot) nil))
+              ((symbol-function 'select-window)
+               (lambda (_win &optional _nr) (setq selected t))))
+      (knayawp--claude-edit-select-window)
+      (should-not selected))))
+
+(ert-deftest knayawp-test-claude-edit-finish-saves-edits-and-selects-claude ()
+  "`knayawp--claude-edit-finish' saves, signals done, then focuses Claude."
+  (let ((saved nil) (edited nil) (selected nil)
+        (knayawp-panels '((claude :slot 1))))
+    (cl-letf (((symbol-function 'save-buffer) (lambda () (setq saved t)))
+              ((symbol-function 'server-edit) (lambda () (setq edited t)))
+              ((symbol-function 'knayawp--claude-edit-select-window)
+               (lambda () (setq selected t))))
+      (knayawp--claude-edit-finish)
+      (should saved)
+      (should edited)
+      (should selected))))
+
+(ert-deftest knayawp-test-claude-edit-abort-discards-and-selects-claude ()
+  "`knayawp--claude-edit-abort' marks unmodified, signals done, then focuses Claude."
+  (let ((marked-clean nil) (edited nil) (messaged nil) (selected nil))
+    (cl-letf (((symbol-function 'set-buffer-modified-p)
+               (lambda (flag) (setq marked-clean (not flag))))
+              ((symbol-function 'server-edit) (lambda () (setq edited t)))
+              ((symbol-function 'message)
+               (lambda (fmt &rest _) (setq messaged fmt)))
+              ((symbol-function 'knayawp--claude-edit-select-window)
+               (lambda () (setq selected t))))
+      (knayawp--claude-edit-abort)
+      (should marked-clean)
+      (should edited)
+      (should (string-match-p "discarded" messaged))
+      (should selected))))
+
+(ert-deftest knayawp-test-claude-editor-server-switch-binds-abort ()
+  "`knayawp--claude-editor-server-switch' binds C-c C-k to abort in the edit buffer."
+  (let* ((file-buf (generate-new-buffer " *knayawp-test-abort-key*"))
+         (fake-editor-win (selected-window))
+         (knayawp-claude-editor-flag t)
+         (knayawp--active-layouts '(("/fake/" . t)))
+         (knayawp--editor-window fake-editor-win)
+         (knayawp--commit-pre-state nil))
+    (unwind-protect
+        (cl-letf (((symbol-function 'window-live-p) (lambda (_w) t))
+                  ((symbol-function 'buffer-file-name)
+                   (lambda () "/tmp/claude-prompt-12345"))
+                  ((symbol-function 'current-buffer) (lambda () file-buf))
+                  ((symbol-function 'set-window-buffer) #'ignore)
+                  ((symbol-function 'select-window) #'ignore))
+          (knayawp--claude-editor-server-switch)
+          (with-current-buffer file-buf
+            (should (eq #'knayawp--claude-edit-abort
+                        (local-key-binding (kbd "C-c C-k"))))
+            (should (string-match-p "discard"
+                                    (or (and (stringp header-line-format)
+                                             header-line-format)
+                                        "")))))
+      (when (buffer-live-p file-buf) (kill-buffer file-buf)))))
+
 ;;; knayawp-test.el ends here

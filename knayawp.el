@@ -2033,14 +2033,35 @@ name, and cache the path in `knayawp--editor-server-socket'."
        (message "knayawp: could not start Emacs server: %S" err)
        nil)))))
 
+(defun knayawp--claude-edit-select-window ()
+  "Select the Claude side window if live, else no-op."
+  (when-let* ((spec (assq 'claude knayawp-panels))
+              (win (knayawp--side-window-for-slot
+                    (knayawp--panel-slot spec)))
+              ((window-live-p win)))
+    (select-window win)))
+
 (defun knayawp--claude-edit-finish ()
-  "Save the Claude edit buffer and signal done to emacsclient.
+  "Save the Claude edit buffer, signal done to emacsclient, focus Claude.
 Saves before calling `server-edit' so Emacs does not prompt to save a
 modified buffer — the same approach used by `with-editor-finish' in
-magit."
+magit.  Selects the Claude panel afterward so the user can press Enter
+to dispatch the prompt without a manual window switch."
   (interactive)
   (save-buffer)
-  (server-edit))
+  (server-edit)
+  (knayawp--claude-edit-select-window))
+
+(defun knayawp--claude-edit-abort ()
+  "Discard the Claude prompt draft and return focus to the Claude panel.
+Marks the buffer unmodified so `server-edit' completes without a save
+prompt, leaving the on-disk temp file unchanged.  Mirrors the magit
+abort convention."
+  (interactive)
+  (set-buffer-modified-p nil)
+  (server-edit)
+  (message "knayawp: Prompt discarded")
+  (knayawp--claude-edit-select-window))
 
 (defun knayawp--claude-editor-server-switch ()
   "Route emacsclient-opened files to the editor pane for Claude.
@@ -2070,9 +2091,10 @@ non-Claude emacsclient opens unexpectedly."
       (select-window knayawp--editor-window)
       (with-current-buffer buf
         (setq-local header-line-format
-                    "Claude edit — C-c C-c or C-x # to finish, then return to Claude panel")
+                    "Claude edit — C-c C-c/C-x # to send, C-c C-k to discard")
         (local-set-key (kbd "C-c C-c") #'knayawp--claude-edit-finish)
-        (local-set-key (kbd "C-x #") #'knayawp--claude-edit-finish)))))
+        (local-set-key (kbd "C-x #") #'knayawp--claude-edit-finish)
+        (local-set-key (kbd "C-c C-k") #'knayawp--claude-edit-abort)))))
 
 (defun knayawp--install-claude-editor-hook ()
   "Register `knayawp--claude-editor-server-switch' on `server-switch-hook'.
