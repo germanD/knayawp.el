@@ -794,7 +794,8 @@ the Claude panel is not available."
             (let* ((ext (or (file-name-extension file) ""))
                    (text (buffer-substring-no-properties
                           (region-beginning) (region-end))))
-              (format "```%s\n%s```" ext text)))
+              (format "```%s\n%s\n```"
+                      ext (string-trim-right text))))
            (t
             (format "@%s" rel))))
          (prompt (read-string "Send to Claude: " reference))
