@@ -200,7 +200,14 @@ Marks the run INCOMPLETE so a timeout never reads as GREEN."
   (sit-for knayawp-probe--settle))
 
 (defun knayawp-probe-teardown-layout ()
-  "Tear down the layout, handling zoom and monocle state first."
+  "Tear down the layout, handling zoom and monocle state first.
+Emacs 29 -nw has a known bug: `window-toggle-side-windows' does not
+reliably restore side windows when called from a non-graphic session.
+This function avoids the toggle by calling `knayawp-zoom-panel' and
+`knayawp-monocle-panel' directly to unwind any active zoom or monocle
+state before `knayawp-layout-teardown' deletes side windows directly.
+Relying on the toggle in -nw mode silently fails and leaves stale side
+windows that corrupt window-count assertions in later scenarios."
   (when knayawp--zoomed-panel
     (knayawp-zoom-panel))
   (when (frame-parameter nil 'knayawp--monocle-config)
