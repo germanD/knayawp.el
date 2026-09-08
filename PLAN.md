@@ -239,8 +239,8 @@ Resolved design decisions:
 - [ ] ci: update GitHub Actions to drop deprecated Node.js 20 runner — #134
 - [ ] infra: Claude editor integration has no end-to-end test coverage — design automated path — #130
 - [ ] feat: add knayawp-claude-edit-style (route temp file into Claude panel, restore on done) — #133
-- [ ] feat: return focus to Claude panel after C-c C-c in prompt editor — #135
-- [ ] feat: C-c C-k abort binding and message for Claude prompt editor — #143
+- [x] feat: return focus to Claude panel after C-c C-c in prompt editor — #135
+- [x] feat: C-c C-k abort binding and message for Claude prompt editor — #143
 - [ ] design: C-c C-c immediate dispatch vs C-x # pre-dispatch semantics — #144
 - [ ] ci: pin runs-on to ubuntu-24.04 to prevent silent OS upgrades — #136
 - [ ] ci: add sanity preflight that verifies ELPA packages load in -Q mode — #137
