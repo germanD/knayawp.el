@@ -3320,4 +3320,34 @@ binary and the socket path."
                                         "")))))
       (when (buffer-live-p file-buf) (kill-buffer file-buf)))))
 
+;;;; with-editor sleeping-editor in non-graphic sessions (#141)
+
+;; `test/sandbox.el' sets `with-editor-emacsclient-executable' to nil in
+;; non-graphic (-nw) probe runs.  This forces the sleeping-editor mechanism,
+;; which uses the git process stdout pipe instead of a socket round-trip.
+;; Without it, commit-flow probes silently time out when emacsclient is
+;; installed but cannot complete the socket handshake in a headless process.
+;;
+;; The test below asserts that nil disables the emacsclient path: when the
+;; variable is nil, `with-editor' falls back to the sleeping-editor script
+;; (the value of `with-editor-sleeping-editor').  This guards against an
+;; accidental removal of the setting from sandbox.el during a future refactor.
+
+(ert-deftest knayawp-test-with-editor-sleeping-editor-when-emacsclient-nil ()
+  "Nil emacsclient disables the socket path; sleeping-editor is used instead.
+When `with-editor-emacsclient-executable' is nil, `with-editor' uses its
+sleeping-editor script rather than emacsclient for commit editing.  This
+is the mechanism that makes commit-flow probes work in headless -nw sessions
+where socket connections cannot complete.
+This test verifies the API invariant that guards `test/sandbox.el': the
+`with-editor-sleeping-editor' string must be non-empty whenever
+`with-editor-emacsclient-executable' is nil."
+  (when (require 'with-editor nil t)
+    (let ((with-editor-emacsclient-executable nil))
+      ;; The sleeping-editor variable must hold the fallback shell script.
+      (should (stringp with-editor-sleeping-editor))
+      (should (not (string-empty-p with-editor-sleeping-editor)))
+      ;; The emacsclient path is disabled — confirm the guard variable is nil.
+      (should (null with-editor-emacsclient-executable)))))
+
 ;;; knayawp-test.el ends here

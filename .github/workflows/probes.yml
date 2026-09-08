@@ -19,7 +19,7 @@ on:
 jobs:
   ert:
     name: ERT unit tests
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
@@ -35,13 +35,18 @@ jobs:
   probes:
     needs: ert
     name: Integration probes
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     env:
       TERM: xterm-256color
       KNAYAWP_PROBE_GEOM: 200x50
     steps:
       - uses: actions/checkout@v4
+      - name: Tool versions
+        run: |
+          emacs --version
+          git --version
+          tmux -V
       - name: Install dependencies
         run: |
           sudo apt-get update
@@ -61,14 +66,16 @@ jobs:
             elpa-
       - name: Bootstrap ELPA packages
         if: steps.elpa-cache.outputs.cache-hit != 'true'
+        run: bash test/bootstrap-elpa.sh
+      - name: ELPA sanity check
         run: |
-          emacs -batch --eval "(progn \
-            (require 'package) \
-            (add-to-list 'package-archives '(\"melpa\" . \"https://melpa.org/packages/\")) \
-            (package-initialize) \
-            (package-refresh-contents) \
-            (dolist (pkg '(vterm magit with-editor eat)) \
-              (unless (package-installed-p pkg) \
-                (ignore-errors (package-install pkg)))))" 2>&1 || true
+          emacs -Q --batch \
+            --eval "(progn \
+              (require 'package) \
+              (add-to-list 'package-archives \
+                '(\"melpa\" . \"https://melpa.org/packages/\")) \
+              (package-initialize))" \
+            --eval "(require 'magit)" \
+            --eval "(message \"ELPA sanity: OK\")"
       - name: Run probe suite
         run: bash test/run-probes.sh
