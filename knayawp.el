@@ -693,6 +693,9 @@ Signal `user-error' when no terminal panel window exists."
     (when (and (not wins) knayawp--zoomed-panel)
       (user-error "Terminal panel hidden — unzoom first with %s"
                   (substitute-command-keys "\\[knayawp-zoom-panel]")))
+    (when (and (not wins) (frame-parameter nil 'knayawp--monocle-config))
+      (user-error "Terminal panel hidden — exit monocle first with %s"
+                  (substitute-command-keys "\\[knayawp-monocle-panel]")))
     (unless wins
       (user-error "No terminal panel window — run knayawp-layout-setup first"))
     (or (seq-find (lambda (w) (eq w (selected-window))) wins)
@@ -785,8 +788,12 @@ the Claude panel is not available."
            ((and has-region (not arg))
             (let* ((beg (region-beginning))
                    (end (region-end))
-                   (lbeg (line-number-at-pos beg))
-                   (lend (line-number-at-pos end)))
+                   (lbeg (line-number-at-pos beg t))
+                   (lend (save-excursion
+                           (goto-char end)
+                           (if (and (bolp) (> end beg))
+                               (line-number-at-pos (1- end) t)
+                             (line-number-at-pos end t)))))
               (if (= lbeg lend)
                   (format "@%s:L%d" rel lbeg)
                 (format "@%s:L%d-L%d" rel lbeg lend))))
@@ -798,15 +805,15 @@ the Claude panel is not available."
                       ext (string-trim-right text))))
            (t
             (format "@%s" rel))))
-         (prompt (read-string "Send to Claude: " reference))
          (spec (assq 'claude knayawp-panels))
          (win  (and spec
                     (knayawp--side-window-for-slot
                      (knayawp--panel-slot spec)))))
-    (kill-new prompt)
     (unless win
       (user-error "No Claude panel — run knayawp-layout-setup first"))
-    (select-window win)))
+    (let ((prompt (read-string "Send to Claude: " reference)))
+      (kill-new prompt)
+      (select-window win))))
 
 ;;;; Buffer creation helpers
 
@@ -1592,8 +1599,9 @@ can restore the layout."
   (when (knayawp--fixup-flow-active-p)
     (setq knayawp--fixup-pre-state nil)
     (message "knayawp: layout torn down during active fixup; state cleared"))
-  ;; Clear monocle state: restoring the saved config would be
+  ;; Clear zoom and monocle state: restoring saved configs would be
   ;; meaningless once the layout is gone.
+  (setq knayawp--zoomed-panel nil)
   (set-frame-parameter nil 'knayawp--monocle-config nil)
   ;; Save to winner ring before deleting side windows, so the full
   ;; layout (including panels) enters the undo history.  Only when
