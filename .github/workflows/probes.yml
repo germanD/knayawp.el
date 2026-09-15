@@ -42,11 +42,6 @@ jobs:
       KNAYAWP_PROBE_GEOM: 200x50
     steps:
       - uses: actions/checkout@v4
-      - name: Tool versions
-        run: |
-          emacs --version
-          git --version
-          tmux -V
       - name: Install dependencies
         run: |
           sudo apt-get update
@@ -55,13 +50,18 @@ jobs:
           sudo apt-get install -y emacs tmux \
             build-essential cmake libtool libtool-bin automake pkg-config \
             elpa-magit elpa-with-editor elpa-vterm || true
+      - name: Tool versions
+        run: |
+          emacs --version
+          git --version
+          tmux -V
       - name: Cache ELPA packages
         id: elpa-cache
         uses: actions/cache@v4
         with:
           path: ~/.emacs.d/elpa
           # Key on sandbox.el only — knayawp.el changes don't affect package versions.
-          key: elpa-${{ hashFiles('test/sandbox.el', '.github/workflows/probes.yml') }}
+          key: elpa-${{ hashFiles('test/sandbox.el', '.github/workflows/probes.yml', 'test/bootstrap-elpa.sh') }}
           restore-keys: |
             elpa-
       - name: Bootstrap ELPA packages
@@ -76,6 +76,9 @@ jobs:
                 '(\"melpa\" . \"https://melpa.org/packages/\")) \
               (package-initialize))" \
             --eval "(require 'magit)" \
+            --eval "(require 'vterm)" \
+            --eval "(require 'with-editor)" \
+            --eval "(require 'eat)" \
             --eval "(message \"ELPA sanity: OK\")"
       - name: Run probe suite
         run: bash test/run-probes.sh
