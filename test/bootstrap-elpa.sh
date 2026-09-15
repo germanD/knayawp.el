@@ -11,11 +11,12 @@
 
 set -euo pipefail
 
-emacs -batch --eval "(progn \
+emacs -Q --batch --eval "(progn \
   (require 'package) \
   (add-to-list 'package-archives '(\"melpa\" . \"https://melpa.org/packages/\")) \
   (package-initialize) \
-  (package-refresh-contents) \
-  (dolist (pkg '(vterm magit with-editor eat)) \
+  (condition-case e (package-refresh-contents) \
+    (error (message \"Warning: package-refresh-contents failed: %S\" e))) \
+  (dolist (pkg '(compat vterm magit with-editor eat)) \
     (unless (package-installed-p pkg) \
       (ignore-errors (package-install pkg)))))" 2>&1 || true
