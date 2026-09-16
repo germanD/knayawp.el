@@ -843,8 +843,10 @@ the Claude panel is not available."
     (user-error "Buffer has no file"))
   (let ((reference (knayawp--claude-reference buffer-file-name arg)))
     (pcase knayawp-send-to-claude-style
+      ('compose   (knayawp--send-to-claude-compose reference))
       ('kill-ring (knayawp--send-to-claude-kill-ring reference))
-      (_          (knayawp--send-to-claude-compose reference)))))
+      (_ (user-error "Unknown send-to-Claude style: %s"
+                     knayawp-send-to-claude-style)))))
 
 (defun knayawp--send-to-claude-kill-ring (reference)
   "Prompt for a message pre-filled with REFERENCE, save it, focus Claude.
