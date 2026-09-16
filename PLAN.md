@@ -249,6 +249,8 @@ Resolved design decisions:
 - [x] ci: add emacs/git/tmux version diagnostic step to probe job — #140
 - [x] test: ERT asserting sleeping-editor is selected in non-graphic with-editor sessions — #141
 - [x] feat: add knayawp-send-to-claude (C-c k c) — @file and fenced-block references to Claude panel — #115
+  - Note: the #115 MVP only builds a reference and pushes it to the kill ring (manual yank); it does not deliver to the Claude process. Delivery is #155 below.
+- [ ] feat: send-to-Claude via editor-pane compose buffer + panel injection (new C-c k c default) — #155
 - [x] fix: active terminal window emits wrong error when layout is not running — #132
 - [ ] test: use skip-unless for optional with-editor dependency in ERT test — #150
 - [ ] test: remove vacuous (should (null ...)) assertion in sleeping-editor ERT test — #151
@@ -302,7 +304,9 @@ Emacs 27+ `tab-bar-mode` is the natural fit — each tab can represent a project
 - [ ] Alternative layouts for narrow screens (side pane as overlay) — #51 (deferred from v0.1.5)
 - [ ] feat: visual overlay notification when a project file changes externally — #112
 - [ ] feat: Emacs notification bridge for Claude vterm panel (alert.el integration) — #114
-- [ ] feat: direct vterm injection for send-to-Claude (requires prompt detection) — #116
+- [ ] feat: optional prompt-readiness detection / auto-submit for send-to-Claude (builds on #155) — #116
+- [ ] feat: C-c k c variant — send selection to a NEW Claude session — #156
+- [ ] feat: incremental append to an in-flight send-to-Claude compose buffer — #157
 - [ ] kb: stub KB entries for filenotify overlay, Claude notification, send-to-Claude — #117
 - [ ] ci: integrate probe harness into CI/CD pipeline — #125
 - [ ] research: investigate whether Emacs 30 fixes -nw window-toggle-side-windows tree corruption — #142

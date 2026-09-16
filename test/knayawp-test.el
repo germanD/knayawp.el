@@ -1485,6 +1485,79 @@ passive-loading discipline carries through to the customize path)."
   (let ((knayawp-panels '((claude :slot 2))))
     (should-error (knayawp-claude-send-ctrl-x) :type 'user-error)))
 
+;;;; Send-to-Claude reference builder and compose flow
+
+(ert-deftest knayawp-test-send-to-claude-style-default ()
+  "`knayawp-send-to-claude-style' defaults to `compose'."
+  (should (eq 'compose (default-value 'knayawp-send-to-claude-style))))
+
+(ert-deftest knayawp-test-claude-reference-no-region ()
+  "`knayawp--claude-reference' returns a bare @FILE with no region."
+  (with-temp-buffer
+    (setq default-directory temporary-file-directory)
+    (insert "line1\nline2\nline3\n")
+    (cl-letf (((symbol-function 'use-region-p) (lambda () nil)))
+      (should (equal "@foo.el"
+                     (knayawp--claude-reference "/nowhere/foo.el" nil))))))
+
+(ert-deftest knayawp-test-claude-reference-single-line ()
+  "`knayawp--claude-reference' uses @FILE:LN for a single-line region."
+  (with-temp-buffer
+    (setq default-directory temporary-file-directory)
+    (insert "line1\nline2\nline3\n")
+    (cl-letf (((symbol-function 'use-region-p) (lambda () t))
+              ((symbol-function 'region-beginning) (lambda () (point-min)))
+              ((symbol-function 'region-end)
+               (lambda () (save-excursion (goto-char (point-min))
+                                          (line-end-position)))))
+      (should (equal "@foo.el:L1"
+                     (knayawp--claude-reference "/nowhere/foo.el" nil))))))
+
+(ert-deftest knayawp-test-claude-reference-multi-line ()
+  "`knayawp--claude-reference' uses @FILE:LN-LM for a multi-line region."
+  (with-temp-buffer
+    (setq default-directory temporary-file-directory)
+    (insert "line1\nline2\nline3\n")
+    (cl-letf (((symbol-function 'use-region-p) (lambda () t))
+              ((symbol-function 'region-beginning) (lambda () (point-min)))
+              ((symbol-function 'region-end) (lambda () (point-max))))
+      (should (equal "@foo.el:L1-L3"
+                     (knayawp--claude-reference "/nowhere/foo.el" nil))))))
+
+(ert-deftest knayawp-test-claude-reference-fenced-block ()
+  "`knayawp--claude-reference' fences the selection under a prefix ARG."
+  (with-temp-buffer
+    (setq default-directory temporary-file-directory)
+    (insert "line1\nline2\nline3\n")
+    (cl-letf (((symbol-function 'use-region-p) (lambda () t))
+              ((symbol-function 'region-beginning) (lambda () (point-min)))
+              ((symbol-function 'region-end) (lambda () (point-max))))
+      (should (equal "```el\nline1\nline2\nline3\n```"
+                     (knayawp--claude-reference "/nowhere/foo.el" '(4)))))))
+
+(ert-deftest knayawp-test-send-to-claude-no-file ()
+  "`knayawp-send-to-claude' signals user-error when the buffer has no file."
+  (with-temp-buffer
+    (should-error (knayawp-send-to-claude nil) :type 'user-error)))
+
+(ert-deftest knayawp-test-claude-prompt-mode-map-bindings ()
+  "The compose keymap binds send and abort to the expected commands."
+  (should (eq 'knayawp-claude-prompt-send
+              (lookup-key knayawp-claude-prompt-mode-map (kbd "C-c C-c"))))
+  (should (eq 'knayawp-claude-prompt-abort
+              (lookup-key knayawp-claude-prompt-mode-map (kbd "C-c C-k")))))
+
+(ert-deftest knayawp-test-claude-prompt-send-empty ()
+  "`knayawp-claude-prompt-send' signals user-error on an empty draft."
+  (with-temp-buffer
+    (insert "   \n\n")
+    (should-error (knayawp-claude-prompt-send) :type 'user-error)))
+
+(ert-deftest knayawp-test-claude-panel-send-string-no-panel ()
+  "`knayawp--claude-panel-send-string' errors when no Claude window exists."
+  (let ((knayawp-panels '((claude :slot 2))))
+    (should-error (knayawp--claude-panel-send-string "x") :type 'user-error)))
+
 (ert-deftest knayawp-test-terminal-panel-windows-excludes-magit ()
   "`knayawp--terminal-panel-windows' omits the magit slot.
 Only vterm/claude panel types are returned; the magit panel at

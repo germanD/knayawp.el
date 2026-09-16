@@ -140,6 +140,22 @@ running."
   :type 'boolean
   :group 'knayawp)
 
+(defcustom knayawp-send-to-claude-style 'compose
+  "How `knayawp-send-to-claude' delivers context to the Claude panel.
+
+`compose' (the default) opens an editor-pane prompt buffer
+pre-loaded with the reference; finishing it with
+\\<knayawp-claude-prompt-mode-map>\\[knayawp-claude-prompt-send] \
+injects the prompt into the Claude terminal and focuses the panel
+so you can press RET to dispatch.
+
+`kill-ring' constructs the reference via a minibuffer prompt and
+pushes it to the kill ring for manual yanking (the original MVP
+behavior)."
+  :type '(choice (const :tag "Editor-pane compose buffer" compose)
+                 (const :tag "Minibuffer + kill ring" kill-ring))
+  :group 'knayawp)
+
 (defcustom knayawp-magit-commit-style 'zoom
   "Strategy for displaying magit commit-message buffers.
 
@@ -671,6 +687,31 @@ calls."
     (when (and (boundp 'eat-terminal) eat-terminal)
       (eat-term-send-string eat-terminal string))))
 
+(defun knayawp--claude-panel-window ()
+  "Return the live side window showing the Claude panel, or nil.
+Looks up the `claude' panel spec in `knayawp-panels' and resolves
+its slot to a side window.  Returns nil when there is no Claude
+panel spec or its window is not currently displayed (for example,
+while a panel is zoomed or monocle is active)."
+  (let ((spec (assq 'claude knayawp-panels)))
+    (and spec
+         (knayawp--side-window-for-slot (knayawp--panel-slot spec)))))
+
+(defun knayawp--claude-panel-send-string (string)
+  "Send STRING to the Claude panel terminal via the dispatch layer.
+Dispatches to the backend-appropriate `send-string' helper so no
+vterm/eat API is touched outside `knayawp--make-terminal-*' (P3).
+Signal `user-error' when no Claude panel window is available."
+  (let ((win (knayawp--claude-panel-window)))
+    (unless win
+      (user-error "No Claude panel — run knayawp-layout-setup first"))
+    (pcase knayawp-terminal-backend
+      ('vterm (knayawp--make-terminal-send-string-vterm win string))
+      ('eat  (knayawp--make-terminal-send-string-eat   win string))
+      (_ (user-error "Unknown terminal backend: %s"
+                     knayawp-terminal-backend)))
+    win))
+
 (defun knayawp--terminal-panel-windows ()
   "Return side windows for terminal panels (vterm and claude).
 Panel types are those that are not `magit' in `knayawp-panels';
@@ -739,81 +780,210 @@ The Control-x prefix cannot be overridden in a buffer-local
 keymap.  Use \\[knayawp-claude-send-ctrl-x] to pass the byte
 through to the Claude process instead."
   (interactive)
-  (let* ((spec (assq 'claude knayawp-panels))
-         (win (and spec
-                   (knayawp--side-window-for-slot
-                    (knayawp--panel-slot spec)))))
-    (unless win
-      (user-error "No Claude panel — run knayawp-layout-setup first"))
-    (pcase knayawp-terminal-backend
-      ('vterm (knayawp--make-terminal-send-string-vterm win "\C-x"))
-      ('eat  (knayawp--make-terminal-send-string-eat   win "\C-x"))
-      (_ (user-error "Unknown terminal backend: %s"
-                     knayawp-terminal-backend)))))
+  (knayawp--claude-panel-send-string "\C-x"))
+
+(defun knayawp--claude-reference (file arg)
+  "Return the Claude context reference for FILE under prefix ARG.
+Computed in the current buffer.  With a region active and no ARG,
+return @REL:LN-LM (or @REL:LN for a single line) using the
+project-relative path and the region line numbers.  With a region
+active and ARG non-nil, return the selected text in a fenced code
+block tagged with the file extension.  With no region, return the
+bare @REL reference."
+  (let* ((proj (project-current))
+         (root (and proj (project-root proj)))
+         (rel  (if root
+                   (file-relative-name file root)
+                 (file-name-nondirectory file)))
+         (has-region (use-region-p)))
+    (cond
+     ((and has-region (not arg))
+      (let* ((beg (region-beginning))
+             (end (region-end))
+             (lbeg (line-number-at-pos beg t))
+             (lend (save-excursion
+                     (goto-char end)
+                     (if (and (bolp) (> end beg))
+                         (line-number-at-pos (1- end) t)
+                       (line-number-at-pos end t)))))
+        (if (= lbeg lend)
+            (format "@%s:L%d" rel lbeg)
+          (format "@%s:L%d-L%d" rel lbeg lend))))
+     ((and has-region arg)
+      (let* ((ext (or (file-name-extension file) ""))
+             (text (buffer-substring-no-properties
+                    (region-beginning) (region-end))))
+        (format "```%s\n%s\n```" ext (string-trim-right text))))
+     (t
+      (format "@%s" rel)))))
 
 ;;;###autoload
 (defun knayawp-send-to-claude (arg)
   "Send a reference or selection to the Claude panel.
-With region active and no prefix ARG, construct a file reference
-of the form @FILE:LN-LM (or @FILE:LN for a single line) using the
-project-relative path and the region line numbers, prompt for an
-optional message pre-filled with the reference, and push the
-result to the kill ring.
+The reference is built from the current buffer and prefix ARG:
 
-With region active and prefix ARG (\\[universal-argument]), embed
-the selected text in a fenced code block using the file extension
-as the language tag, prompt for a message pre-filled with the
-block, and push the result to the kill ring.
+- Region active, no ARG: a file reference @FILE:LN-LM (or @FILE:LN
+  for a single line) from the project-relative path and region
+  line numbers.
+- Region active, ARG (\\[universal-argument]): the selected text
+  in a fenced code block tagged with the file extension.
+- No region: the bare @FILE reference.
 
-With no region (either prefix), construct @FILE with no line
-numbers, prompt, and push to the kill ring.
-
-After pushing to the kill ring, select the Claude panel window so
-the user can yank directly into the running Claude session.
+Delivery is governed by `knayawp-send-to-claude-style'.  With the
+default `compose', open an editor-pane prompt buffer pre-loaded
+with the reference; finishing it injects the prompt into the
+Claude panel.  With `kill-ring', prompt for a message pre-filled
+with the reference in the minibuffer, push it to the kill ring,
+and select the Claude panel for manual yanking.
 
 Signal `user-error' when the current buffer has no file or when
 the Claude panel is not available."
   (interactive "P")
   (unless buffer-file-name
     (user-error "Buffer has no file"))
-  (let* ((file buffer-file-name)
-         (proj (project-current))
-         (root (and proj (project-root proj)))
-         (rel  (if root
-                   (file-relative-name file root)
-                 (file-name-nondirectory file)))
-         (has-region (use-region-p))
-         (reference
-          (cond
-           ((and has-region (not arg))
-            (let* ((beg (region-beginning))
-                   (end (region-end))
-                   (lbeg (line-number-at-pos beg t))
-                   (lend (save-excursion
-                           (goto-char end)
-                           (if (and (bolp) (> end beg))
-                               (line-number-at-pos (1- end) t)
-                             (line-number-at-pos end t)))))
-              (if (= lbeg lend)
-                  (format "@%s:L%d" rel lbeg)
-                (format "@%s:L%d-L%d" rel lbeg lend))))
-           ((and has-region arg)
-            (let* ((ext (or (file-name-extension file) ""))
-                   (text (buffer-substring-no-properties
-                          (region-beginning) (region-end))))
-              (format "```%s\n%s\n```"
-                      ext (string-trim-right text))))
-           (t
-            (format "@%s" rel))))
-         (spec (assq 'claude knayawp-panels))
-         (win  (and spec
-                    (knayawp--side-window-for-slot
-                     (knayawp--panel-slot spec)))))
+  (let ((reference (knayawp--claude-reference buffer-file-name arg)))
+    (pcase knayawp-send-to-claude-style
+      ('kill-ring (knayawp--send-to-claude-kill-ring reference))
+      (_          (knayawp--send-to-claude-compose reference)))))
+
+(defun knayawp--send-to-claude-kill-ring (reference)
+  "Prompt for a message pre-filled with REFERENCE, save it, focus Claude.
+The original MVP delivery: after pushing to the kill ring, select
+the Claude panel window so the user can yank into the running
+session.  Signal `user-error' when no Claude panel is available."
+  (let ((win (knayawp--claude-panel-window)))
     (unless win
       (user-error "No Claude panel — run knayawp-layout-setup first"))
     (let ((prompt (read-string "Send to Claude: " reference)))
       (kill-new prompt)
       (select-window win))))
+
+;;;; Send-to-Claude compose buffer
+
+(defvar knayawp--claude-prompt-buffer nil
+  "The live send-to-Claude compose buffer, or nil.
+Tracked so a future enhancement can append fresh references to an
+in-flight draft instead of starting over.")
+
+(defvar-local knayawp--claude-prompt-origin-window nil
+  "Window that hosted the compose buffer, for buffer restoration.")
+
+(defvar-local knayawp--claude-prompt-prev-buffer nil
+  "Buffer shown in the origin window before the compose buffer.")
+
+(defvar knayawp-claude-prompt-mode-map
+  (let ((map (make-sparse-keymap)))
+    (define-key map (kbd "C-c C-c") #'knayawp-claude-prompt-send)
+    (define-key map (kbd "C-c C-k") #'knayawp-claude-prompt-abort)
+    map)
+  "Keymap for `knayawp-claude-prompt-mode'.")
+
+(define-minor-mode knayawp-claude-prompt-mode
+  "Minor mode for the send-to-Claude compose buffer.
+\\<knayawp-claude-prompt-mode-map>Finish with \
+\\[knayawp-claude-prompt-send] to inject the prompt into the Claude
+panel, or \\[knayawp-claude-prompt-abort] to discard the draft.
+
+\\{knayawp-claude-prompt-mode-map}"
+  :lighter " Claude→"
+  :keymap knayawp-claude-prompt-mode-map
+  (when knayawp-claude-prompt-mode
+    (setq-local header-line-format
+                (substitute-command-keys
+                 "Compose prompt for Claude — \
+\\[knayawp-claude-prompt-send] send, \
+\\[knayawp-claude-prompt-abort] discard"))))
+
+(defun knayawp--claude-prompt-target-window ()
+  "Return the window to host the compose buffer, or nil.
+Prefer the editor pane when it is live, on the selected frame, and
+not a side window; otherwise the selected window when it is not a
+side window; otherwise nil so the caller falls back to
+`display-buffer'."
+  (cond
+   ((and (window-live-p knayawp--editor-window)
+         (eq (window-frame knayawp--editor-window) (selected-frame))
+         (not (window-parameter knayawp--editor-window 'window-side)))
+    knayawp--editor-window)
+   ((not (window-parameter (selected-window) 'window-side))
+    (selected-window))
+   (t nil)))
+
+(defun knayawp--send-to-claude-compose (reference)
+  "Open an editor-pane compose buffer pre-loaded with REFERENCE.
+Verify a Claude panel exists (the injection target), create the
+compose buffer, insert REFERENCE followed by a blank line with
+point at the end, enable `knayawp-claude-prompt-mode', display it
+in the editor pane, and select it.  On finish the buffer contents
+are injected into the Claude panel; see `knayawp-claude-prompt-send'.
+Signal `user-error' when no Claude panel is available."
+  (unless (knayawp--claude-panel-window)
+    (user-error "No Claude panel — run knayawp-layout-setup first"))
+  (let* ((root (or (when-let* ((proj (project-current)))
+                     (project-root proj))
+                   default-directory))
+         (name (knayawp--buffer-name 'claude-prompt
+                                     (knayawp--project-name root)))
+         (target (knayawp--claude-prompt-target-window))
+         (prev (and target (window-buffer target)))
+         (buf (get-buffer-create name)))
+    (with-current-buffer buf
+      (erase-buffer)
+      (text-mode)
+      (insert reference "\n\n")
+      (goto-char (point-max))
+      (setq knayawp--claude-prompt-origin-window target)
+      (setq knayawp--claude-prompt-prev-buffer prev)
+      (knayawp-claude-prompt-mode 1)
+      (set-buffer-modified-p nil))
+    (setq knayawp--claude-prompt-buffer buf)
+    (if (window-live-p target)
+        (progn
+          (set-window-buffer target buf)
+          (select-window target))
+      (select-window (display-buffer buf)))))
+
+(defun knayawp--claude-prompt-restore-origin ()
+  "Restore the origin window's previous buffer, if both are live.
+Reads the buffer-local origin window and previous buffer recorded
+when the compose buffer was displayed."
+  (let ((ow knayawp--claude-prompt-origin-window)
+        (pb knayawp--claude-prompt-prev-buffer))
+    (when (and (window-live-p ow) (buffer-live-p pb))
+      (set-window-buffer ow pb))))
+
+(defun knayawp-claude-prompt-send ()
+  "Inject the compose buffer's prompt into the Claude panel.
+Send the trimmed buffer contents to the Claude terminal via the
+dispatch layer, restore the editor window's previous buffer, focus
+the Claude panel so the prompt can be dispatched with RET, and
+kill the draft.  Signal `user-error' when the buffer is empty or
+no Claude panel is available."
+  (interactive)
+  (let ((text (string-trim (buffer-string))))
+    (when (string= "" text)
+      (user-error "Prompt is empty"))
+    ;; Send first: if it errors (no panel) the draft is preserved.
+    (let ((win (knayawp--claude-panel-send-string text))
+          (buf (current-buffer)))
+      (knayawp--claude-prompt-restore-origin)
+      (setq knayawp--claude-prompt-buffer nil)
+      (when (window-live-p win)
+        (select-window win))
+      (kill-buffer buf)
+      (message "knayawp: Prompt sent to Claude — press RET to dispatch"))))
+
+(defun knayawp-claude-prompt-abort ()
+  "Discard the compose buffer without sending, restore the editor window.
+Restore the origin window's previous buffer, focus the Claude
+panel, and kill the draft."
+  (interactive)
+  (let ((buf (current-buffer)))
+    (knayawp--claude-prompt-restore-origin)
+    (setq knayawp--claude-prompt-buffer nil)
+    (knayawp--claude-edit-select-window)
+    (kill-buffer buf)
+    (message "knayawp: Prompt discarded")))
 
 ;;;; Buffer creation helpers
 
