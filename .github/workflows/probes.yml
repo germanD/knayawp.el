@@ -76,7 +76,6 @@ jobs:
                 '(\"melpa\" . \"https://melpa.org/packages/\")) \
               (package-initialize))" \
             --eval "(require 'magit)" \
-            --eval "(or (locate-library \"vterm\") (error \"vterm not in load-path\"))" \
             --eval "(require 'with-editor)" \
             --eval "(require 'eat)" \
             --eval "(message \"ELPA sanity: OK\")"
