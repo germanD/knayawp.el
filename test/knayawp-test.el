@@ -1491,6 +1491,14 @@ passive-loading discipline carries through to the customize path)."
   "`knayawp-send-to-claude-style' defaults to `compose'."
   (should (eq 'compose (default-value 'knayawp-send-to-claude-style))))
 
+(ert-deftest knayawp-test-send-to-claude-unknown-style ()
+  "`knayawp-send-to-claude' signals user-error on an unknown style."
+  (with-temp-buffer
+    (setq default-directory temporary-file-directory)
+    (setq buffer-file-name (expand-file-name "foo.el" temporary-file-directory))
+    (let ((knayawp-send-to-claude-style 'bogus))
+      (should-error (knayawp-send-to-claude nil) :type 'user-error))))
+
 (ert-deftest knayawp-test-claude-reference-no-region ()
   "`knayawp--claude-reference' returns a bare @FILE with no region."
   (with-temp-buffer
