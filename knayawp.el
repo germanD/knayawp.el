@@ -2096,8 +2096,12 @@ name, and cache the path in `knayawp--editor-server-socket'."
         (expand-file-name server-name server-socket-dir)))
    (t
     (condition-case err
-        (let ((server-name knayawp--editor-server-name))
-          (server-start)
+        (progn
+          (let ((server-name knayawp--editor-server-name))
+            (server-start))
+          ;; Persist server-name so with-editor reads the correct socket
+          ;; when building its emacsclient command (e.g. for git rebase -i).
+          (setq server-name knayawp--editor-server-name)
           (setq knayawp--editor-server-socket
                 (expand-file-name knayawp--editor-server-name
                                   server-socket-dir)))
