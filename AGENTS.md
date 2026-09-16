@@ -276,6 +276,7 @@ Never retry the plain `gh pr view <N>` or `gh pr edit --body` form assuming the 
 
 - After merging work that completes a milestone, close all implemented issues and close the milestone.
 - Enhancement issues that weren't part of the core deliverable should be moved to a later milestone, not left orphaned in a closed one.
+- Bump the `;; Version:` header in `knayawp.el` to the completed milestone version at close time (see [pmo role](#pmo)).
 
 #### PLAN.md ↔ milestone invariant
 
@@ -530,6 +531,7 @@ the PR body (e.g. "covered by existing `monocle.el` probe").
 
 - Owns the [PLAN.md ↔ milestone invariant](#planmd--milestone-invariant). At milestone close, walk the milestone, tick the corresponding boxes in `PLAN.md`, and verify both directions match.
 - When a new issue is filed against an open milestone, append a matching `- [ ]` line to that milestone's section in `PLAN.md` and commit it alongside whatever motivated the issue.
+- At milestone close, bump the `;; Version: X.Y` header in `knayawp.el` to match the completed milestone version. Commit this alongside the PLAN.md reconciliation in the same `chore(pmo): close milestone vX.Y` commit.
 - At release prep, verify the package header `;; Version:` matches the milestone tag, the changelog has an entry, and all issues in the milestone are closed.
 - Move enhancement leftovers from a closing milestone to the next open milestone rather than leaving them orphaned.
 - Verifies labels at PR creation time: inherit area labels from closed issues; apply area + type labels for untracked work. Retroactively corrects any unlabeled open PRs encountered.

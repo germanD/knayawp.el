@@ -214,10 +214,10 @@ Resolved design decisions:
 ### v0.1.5 — Quick DevX Wins
 
 - [x] One-shot copy/paste bindings for terminal panels (`C-c k SPC` / `w` / `y`) — #77
-- [ ] Promote probe harness to first-class integration-test tier — #80
-- [ ] Managed transient splits in editor pane for side-pane-triggered visits — #52
-- [ ] nit: bind frame-width once in knayawp--editor-columns to avoid double call — #96
-- [ ] enhancement: magit fixup (c f) flow — focus magit-log-select window automatically — #98
+- [x] Promote probe harness to first-class integration-test tier — #80
+- [x] Managed transient splits in editor pane for side-pane-triggered visits — #52
+- [x] nit: bind frame-width once in knayawp--editor-columns to avoid double call — #96
+- [x] enhancement: magit fixup (c f) flow — focus magit-log-select window automatically — #98
 - [x] enhancement: auto-refresh vterm panels after theme change — #100
 - [x] New probe: layout immunity (P1) — C-x 0, C-x 2/3, C-x o isolation flag — #103
 - [x] New probe: knayawp-toggle-panels — #104
@@ -226,12 +226,12 @@ Resolved design decisions:
 - [x] AGENTS.md: probe authoring guide (naming, Probe-Geometry header, ERT/probe boundary) — #107
 - [x] ERT: fix two misplaced tests (zoom batch trivially passes; monocle mocks overcomplicated) — #108
 - [x] docs: Claude Code Notification hook to get OS alerts when Claude waits for input — #113
-- [ ] feat: send editor selection to Claude vterm panel as context reference — #115
+- [x] feat: send editor selection to Claude vterm panel as context reference — #115
 - [x] fix: pass C-g and C-x through to Claude TUI in vterm/eat panels — #120
 - [x] feat: C-g in Claude panel opens prompt editor as Emacs buffer in editor pane — #121
 - [x] fix: C-g sends BEL not ESC to Claude TUI; add C-c k C-x for Control-x passthrough — #127
 - [x] bug: C-g interception and EDITOR injection skipped for reused Claude buffers — #129
-- [ ] bug: C-c k y (paste to terminal) errors when terminal is zoomed away — #132
+- [x] bug: C-c k y (paste to terminal) errors when terminal is zoomed away — #132
 
 ### v0.1.6 — Keymap Hygiene
 
