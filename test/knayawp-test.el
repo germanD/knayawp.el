@@ -3423,12 +3423,10 @@ where socket connections cannot complete.
 This test verifies the API invariant that guards `test/sandbox.el': the
 `with-editor-sleeping-editor' string must be non-empty whenever
 `with-editor-emacsclient-executable' is nil."
-  (when (require 'with-editor nil t)
-    (let ((with-editor-emacsclient-executable nil))
-      ;; The sleeping-editor variable must hold the fallback shell script.
-      (should (stringp with-editor-sleeping-editor))
-      (should (not (string-empty-p with-editor-sleeping-editor)))
-      ;; The emacsclient path is disabled — confirm the guard variable is nil.
-      (should (null with-editor-emacsclient-executable)))))
+  (skip-unless (require 'with-editor nil t))
+  (let ((with-editor-emacsclient-executable nil))
+    ;; The sleeping-editor variable must hold the fallback shell script.
+    (should (stringp with-editor-sleeping-editor))
+    (should (not (string-empty-p with-editor-sleeping-editor)))))
 
 ;;; knayawp-test.el ends here

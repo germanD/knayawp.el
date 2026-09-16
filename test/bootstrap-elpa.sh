@@ -23,4 +23,9 @@ emacs -Q --batch --eval "(progn \
     (error (message \"Warning: package-refresh-contents failed: %S\" e))) \
   (dolist (pkg '(compat magit with-editor eat)) \
     (unless (package-installed-p pkg) \
-      (ignore-errors (package-install pkg)))))" 2>&1 || true
+      (ignore-errors (package-install pkg)))))" 2>&1 \
+  || true  # Intentional: `set -euo pipefail' stays in force for the rest of
+           # the script, but a transient install/refresh failure here must not
+           # abort bootstrap.  Individual installs are already wrapped in
+           # `ignore-errors', and the downstream ELPA sanity check is the real
+           # gate that fails the run if a required package is genuinely missing.
