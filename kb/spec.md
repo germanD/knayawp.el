@@ -229,3 +229,29 @@ repo) so the snippet does not affect other contributors.
 Claude Code's `Notification` hook also fires for other events (e.g. permission prompts
 and agent-stop events), so the notification may appear for reasons other than
 "waiting for user text input". That is expected and generally useful.
+
+**Emacs as Claude's editor.** When `knayawp-claude-editor-flag` is non-nil (the default),
+`knayawp-layout-setup` injects `EDITOR=emacsclient` into the Claude terminal environment.
+Claude's edit-prompt action then opens the draft in Emacs via the Emacs server. A late
+`server-switch-hook` handler (installed with `APPEND` so it runs after magit's own
+handler) routes the emacsclient temp file into the layout and binds `C-c C-c` / `C-x #`
+to finish and `C-c C-k` to discard. Finishing saves and calls `server-edit`; discarding
+marks the buffer unmodified before `server-edit`, then both return focus to the Claude
+panel. The handler no-ops during a commit-zoom session so the magit commit flow, which
+owns `server-switch-hook` at that time, is never disturbed.
+
+**Where the draft is displayed** is controlled by `knayawp-claude-edit-style`:
+
+- `claude-panel` (the default): the temp file replaces the Claude panel window for the
+  duration of the edit — the same in-place UX as editing a magit commit message. The
+  displaced Claude terminal buffer is recorded and restored to that window automatically
+  on finish and on discard. When no Claude panel window is live (zoomed, monocle, or
+  hidden) the handler falls back to the editor pane so the draft is never lost.
+- `editor-pane`: the temp file opens in the left editor pane and the Claude panel is left
+  untouched (the pre-v0.1.6 behaviour).
+- `zoom`: the temp file opens in the editor pane, which is then expanded to fill the frame
+  (side windows deleted, as in monocle); the full layout is restored on finish or discard.
+
+The restore step is guarded narrowly — it acts only when a displaced Claude buffer or a
+saved window configuration was actually recorded for this edit — so it never interferes
+with the magit commit flow or other emacsclient users, which travel separate code paths.

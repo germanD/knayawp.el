@@ -140,6 +140,27 @@ running."
   :type 'boolean
   :group 'knayawp)
 
+(defcustom knayawp-claude-edit-style 'claude-panel
+  "How the Claude editor temp file is displayed.
+
+`claude-panel' (the default) replaces the Claude panel window with
+the emacsclient temp file for the duration of the edit, then
+restores the displaced Claude terminal buffer automatically when
+the edit finishes (\\[knayawp--claude-edit-finish]) or is aborted
+\(\\[knayawp--claude-edit-abort]).  This mirrors editing a magit
+commit message in place inside the magit window.
+
+`editor-pane' opens the temp file in the left editor pane and
+leaves the Claude panel untouched (the pre-v0.1.6 behavior).
+
+`zoom' routes the temp file to the editor pane and then zooms that
+window to fill the frame while editing, restoring the full layout
+when the edit finishes or is aborted."
+  :type '(choice (const :tag "Claude panel (replace + restore)" claude-panel)
+                 (const :tag "Editor pane" editor-pane)
+                 (const :tag "Zoom editor pane" zoom))
+  :group 'knayawp)
+
 (defcustom knayawp-send-to-claude-style 'compose
   "How `knayawp-send-to-claude' delivers context to the Claude panel.
 
@@ -534,6 +555,30 @@ Set by `knayawp--install-claude-editor-hook', cleared by
 Set at buffer creation time by `knayawp--get-or-create-claude-buffer'
 when the server was running and emacsclient was found on PATH.
 Nil for reused buffers that predate the layout setup.")
+
+(defvar knayawp--claude-edit-displaced-buf nil
+  "Claude terminal buffer displaced by a `claude-panel'-style edit.
+Set by `knayawp--claude-editor-server-switch' when
+`knayawp-claude-edit-style' is `claude-panel' and it moves the
+Claude panel buffer aside to show the emacsclient temp file.
+Restored to the Claude panel window by `knayawp--claude-edit-finish'
+and `knayawp--claude-edit-abort', then cleared.  Nil at all other
+times so the restore step never fires for magit commit buffers or
+other emacsclient users.")
+
+(defvar knayawp--claude-edit-displaced-window nil
+  "Window whose buffer was displaced by a `claude-panel'-style edit.
+Records the Claude panel window that `knayawp--claude-editor-server-switch'
+repurposed to show the emacsclient temp file, so the finish/abort
+handlers restore `knayawp--claude-edit-displaced-buf' into the same
+window.  Nil when no `claude-panel' edit is in progress.")
+
+(defvar knayawp--claude-edit-zoom-winconf nil
+  "Window configuration saved before a `zoom'-style Claude edit.
+Set by `knayawp--claude-editor-server-switch' when
+`knayawp-claude-edit-style' is `zoom', just before the editor
+window is expanded to fill the frame.  Restored by the finish and
+abort handlers.  Nil when no `zoom' edit is in progress.")
 
 ;;;; Project detection
 
@@ -2289,30 +2334,105 @@ name, and cache the path in `knayawp--editor-server-socket'."
               ((window-live-p win)))
     (select-window win)))
 
+(defun knayawp--claude-edit-restore-display ()
+  "Undo any display change made for a Claude edit.
+Narrowly guarded: only acts when this edit displaced a Claude
+buffer (`claude-panel' style) or saved a window configuration
+\(`zoom' style).  When neither is recorded it is a no-op, so the
+magit commit flow and other emacsclient users are never affected.
+
+For `claude-panel', put `knayawp--claude-edit-displaced-buf' back
+into `knayawp--claude-edit-displaced-window' when both are live.
+For `zoom', restore `knayawp--claude-edit-zoom-winconf' when it
+still belongs to the selected frame.  Clears the state vars in all
+cases so a subsequent edit starts clean."
+  (when (and (buffer-live-p knayawp--claude-edit-displaced-buf)
+             (window-live-p knayawp--claude-edit-displaced-window))
+    (set-window-buffer knayawp--claude-edit-displaced-window
+                       knayawp--claude-edit-displaced-buf))
+  (when (and knayawp--claude-edit-zoom-winconf
+             (window-configuration-p knayawp--claude-edit-zoom-winconf)
+             (eq (window-configuration-frame
+                  knayawp--claude-edit-zoom-winconf)
+                 (selected-frame)))
+    (set-window-configuration knayawp--claude-edit-zoom-winconf))
+  (setq knayawp--claude-edit-displaced-buf nil
+        knayawp--claude-edit-displaced-window nil
+        knayawp--claude-edit-zoom-winconf nil))
+
 (defun knayawp--claude-edit-finish ()
   "Save the Claude edit buffer, signal done to emacsclient, focus Claude.
 Saves before calling `server-edit' so Emacs does not prompt to save a
 modified buffer — the same approach used by `with-editor-finish' in
-magit.  Selects the Claude panel afterward so the user can press Enter
-to dispatch the prompt without a manual window switch."
+magit.  Restores any display change made for the edit (see
+`knayawp--claude-edit-restore-display'), then selects the Claude
+panel so the user can press Enter to dispatch the prompt without a
+manual window switch."
   (interactive)
   (save-buffer)
   (server-edit)
+  (knayawp--claude-edit-restore-display)
   (knayawp--claude-edit-select-window))
 
 (defun knayawp--claude-edit-abort ()
   "Discard the Claude prompt draft and return focus to the Claude panel.
 Marks the buffer unmodified so `server-edit' completes without a save
-prompt, leaving the on-disk temp file unchanged.  Mirrors the magit
-abort convention."
+prompt, leaving the on-disk temp file unchanged.  Restores any display
+change made for the edit (see `knayawp--claude-edit-restore-display')
+before returning focus.  Mirrors the magit abort convention."
   (interactive)
   (set-buffer-modified-p nil)
   (server-edit)
+  (knayawp--claude-edit-restore-display)
   (message "knayawp: Prompt discarded")
   (knayawp--claude-edit-select-window))
 
+(defun knayawp--claude-edit-display-buffer (buf)
+  "Display BUF for a Claude edit per `knayawp-claude-edit-style'.
+Return the window BUF was placed in, or nil if none could be found.
+
+`editor-pane' shows BUF in `knayawp--editor-window' unchanged.
+`claude-panel' shows BUF in the Claude panel window, saving the
+displaced Claude buffer/window into
+`knayawp--claude-edit-displaced-buf' and
+`knayawp--claude-edit-displaced-window' for later restore; it falls
+back to the editor pane when no Claude panel window is live.
+`zoom' shows BUF in the editor pane, saves the current window
+configuration into `knayawp--claude-edit-zoom-winconf', then deletes
+the knayawp side windows so the editor pane fills the frame.  Side
+windows carry the `no-delete-other-windows' parameter and so are not
+removed by `delete-other-windows'; they are deleted explicitly, the
+same technique `knayawp-monocle-panel' uses."
+  (pcase knayawp-claude-edit-style
+    ('claude-panel
+     (let ((claude-win (knayawp--claude-panel-window)))
+       (if (window-live-p claude-win)
+           (progn
+             (setq knayawp--claude-edit-displaced-buf
+                   (window-buffer claude-win)
+                   knayawp--claude-edit-displaced-window claude-win)
+             (set-window-buffer claude-win buf)
+             claude-win)
+         ;; No Claude panel window (zoomed/monocle/hidden) — fall back
+         ;; to the editor pane so the edit is never lost.
+         (set-window-buffer knayawp--editor-window buf)
+         knayawp--editor-window)))
+    ('zoom
+     (setq knayawp--claude-edit-zoom-winconf
+           (current-window-configuration))
+     (set-window-buffer knayawp--editor-window buf)
+     (dolist (win (knayawp--side-windows))
+       (delete-window win))
+     (select-window knayawp--editor-window)
+     (delete-other-windows knayawp--editor-window)
+     knayawp--editor-window)
+    (_
+     ;; `editor-pane' and any unrecognized value: current behaviour.
+     (set-window-buffer knayawp--editor-window buf)
+     knayawp--editor-window)))
+
 (defun knayawp--claude-editor-server-switch ()
-  "Route emacsclient-opened files to the editor pane for Claude.
+  "Route emacsclient-opened files for Claude per `knayawp-claude-edit-style'.
 Added to `server-switch-hook' with APPEND so it runs after magit's
 own handlers.  No-op unless all four conditions hold:
 
@@ -2325,18 +2445,23 @@ own handlers.  No-op unless all four conditions hold:
 
 The file-path predicate is intentionally broad: any file opened via
 emacsclient while the layout is active and no commit-flow is running
-is routed to the editor pane.  This covers Claude's edit-prompt temp
-files without knowing their exact path pattern.  Tighten the
-predicate after observing a real Claude invocation to avoid routing
-non-Claude emacsclient opens unexpectedly."
+is routed per `knayawp-claude-edit-style'.  This covers Claude's
+edit-prompt temp files without knowing their exact path pattern.
+Tighten the predicate after observing a real Claude invocation to
+avoid routing non-Claude emacsclient opens unexpectedly.
+
+The `claude-panel' and `zoom' styles record restore state
+\(displaced buffer or window configuration) that the finish and
+abort handlers unwind; see `knayawp--claude-edit-restore-display'."
   (when (and knayawp-claude-editor-flag
              knayawp--active-layouts
              (window-live-p knayawp--editor-window)
              (buffer-file-name)
              (not (knayawp--commit-flow-active-p)))
-    (let ((buf (current-buffer)))
-      (set-window-buffer knayawp--editor-window buf)
-      (select-window knayawp--editor-window)
+    (let* ((buf (current-buffer))
+           (win (knayawp--claude-edit-display-buffer buf)))
+      (when (window-live-p win)
+        (select-window win))
       (with-current-buffer buf
         (setq-local header-line-format
                     "Claude edit — C-c C-c/C-x # to send, C-c C-k to discard")

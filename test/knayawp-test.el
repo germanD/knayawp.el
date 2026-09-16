@@ -3043,6 +3043,124 @@ split."
   "`knayawp-claude-editor-flag' defaults to t."
   (should (eq t (default-value 'knayawp-claude-editor-flag))))
 
+(ert-deftest knayawp-test-claude-edit-style-default ()
+  "`knayawp-claude-edit-style' defaults to `claude-panel'."
+  (should (eq 'claude-panel (default-value 'knayawp-claude-edit-style))))
+
+(ert-deftest knayawp-test-claude-edit-style-custom-type ()
+  "`knayawp-claude-edit-style' accepts exactly the three documented values."
+  (let ((choices (mapcar (lambda (c) (car (last c)))
+                         (cdr (get 'knayawp-claude-edit-style
+                                   'custom-type)))))
+    (should (equal (sort (copy-sequence choices) #'string<)
+                   '(claude-panel editor-pane zoom)))))
+
+(ert-deftest knayawp-test-claude-edit-display-buffer-editor-pane ()
+  "`editor-pane' style displays in the editor window and records nothing."
+  (let* ((buf (generate-new-buffer " *knayawp-test-edit-editor*"))
+         (fake-editor-win (selected-window))
+         (buf-set nil)
+         (knayawp-claude-edit-style 'editor-pane)
+         (knayawp--editor-window fake-editor-win)
+         (knayawp--claude-edit-displaced-buf nil)
+         (knayawp--claude-edit-displaced-window nil)
+         (knayawp--claude-edit-zoom-winconf nil))
+    (unwind-protect
+        (cl-letf (((symbol-function 'set-window-buffer)
+                   (lambda (_win b) (setq buf-set b))))
+          (let ((win (knayawp--claude-edit-display-buffer buf)))
+            (should (eq win fake-editor-win))
+            (should (eq buf-set buf))
+            (should-not knayawp--claude-edit-displaced-buf)
+            (should-not knayawp--claude-edit-zoom-winconf)))
+      (when (buffer-live-p buf) (kill-buffer buf)))))
+
+(ert-deftest knayawp-test-claude-edit-display-buffer-claude-panel-records ()
+  "`claude-panel' style records the displaced Claude buffer and window."
+  (let* ((buf (generate-new-buffer " *knayawp-test-edit-claude*"))
+         (claude-buf (generate-new-buffer " *knayawp-test-claude-term*"))
+         (fake-claude-win 'fake-claude-win)
+         (buf-set nil)
+         (knayawp-claude-edit-style 'claude-panel)
+         (knayawp--editor-window (selected-window))
+         (knayawp--claude-edit-displaced-buf nil)
+         (knayawp--claude-edit-displaced-window nil)
+         (knayawp--claude-edit-zoom-winconf nil))
+    (unwind-protect
+        (cl-letf (((symbol-function 'knayawp--claude-panel-window)
+                   (lambda () fake-claude-win))
+                  ((symbol-function 'window-live-p)
+                   (lambda (w) (eq w fake-claude-win)))
+                  ((symbol-function 'window-buffer)
+                   (lambda (_w) claude-buf))
+                  ((symbol-function 'set-window-buffer)
+                   (lambda (_win b) (setq buf-set b))))
+          (let ((win (knayawp--claude-edit-display-buffer buf)))
+            (should (eq win fake-claude-win))
+            (should (eq buf-set buf))
+            (should (eq knayawp--claude-edit-displaced-buf claude-buf))
+            (should (eq knayawp--claude-edit-displaced-window
+                        fake-claude-win))))
+      (dolist (b (list buf claude-buf))
+        (when (buffer-live-p b) (kill-buffer b))))))
+
+(ert-deftest knayawp-test-claude-edit-display-buffer-claude-panel-fallback ()
+  "`claude-panel' falls back to the editor pane with no live Claude window."
+  (let* ((buf (generate-new-buffer " *knayawp-test-edit-fallback*"))
+         (fake-editor-win (selected-window))
+         (buf-set nil)
+         (knayawp-claude-edit-style 'claude-panel)
+         (knayawp--editor-window fake-editor-win)
+         (knayawp--claude-edit-displaced-buf nil)
+         (knayawp--claude-edit-displaced-window nil))
+    (unwind-protect
+        (cl-letf (((symbol-function 'knayawp--claude-panel-window)
+                   (lambda () nil))
+                  ((symbol-function 'window-live-p)
+                   (lambda (w) (eq w fake-editor-win)))
+                  ((symbol-function 'set-window-buffer)
+                   (lambda (_win b) (setq buf-set b))))
+          (let ((win (knayawp--claude-edit-display-buffer buf)))
+            (should (eq win fake-editor-win))
+            (should (eq buf-set buf))
+            (should-not knayawp--claude-edit-displaced-buf)))
+      (when (buffer-live-p buf) (kill-buffer buf)))))
+
+(ert-deftest knayawp-test-claude-edit-restore-display-noop-when-clean ()
+  "`knayawp--claude-edit-restore-display' is a no-op with no recorded state.
+This guards the magit commit flow and other emacsclient users."
+  (let ((touched 0)
+        (knayawp--claude-edit-displaced-buf nil)
+        (knayawp--claude-edit-displaced-window nil)
+        (knayawp--claude-edit-zoom-winconf nil))
+    (cl-letf (((symbol-function 'set-window-buffer)
+               (lambda (&rest _) (cl-incf touched)))
+              ((symbol-function 'set-window-configuration)
+               (lambda (&rest _) (cl-incf touched))))
+      (knayawp--claude-edit-restore-display)
+      (should (= 0 touched)))))
+
+(ert-deftest knayawp-test-claude-edit-restore-display-restores-claude-buf ()
+  "`knayawp--claude-edit-restore-display' puts the Claude buffer back.
+Uses a real live buffer and the selected window so that the guard
+predicates (`buffer-live-p', `window-live-p') run for real rather
+than being stubbed (stubbing them triggers native trampoline
+compilation which is unavailable in this batch environment)."
+  (let* ((claude-buf (generate-new-buffer " *knayawp-test-restore-term*"))
+         (real-win (selected-window))
+         (restored nil)
+         (knayawp--claude-edit-displaced-buf claude-buf)
+         (knayawp--claude-edit-displaced-window real-win)
+         (knayawp--claude-edit-zoom-winconf nil))
+    (unwind-protect
+        (cl-letf (((symbol-function 'set-window-buffer)
+                   (lambda (win b) (setq restored (cons win b)))))
+          (knayawp--claude-edit-restore-display)
+          (should (equal restored (cons real-win claude-buf)))
+          (should-not knayawp--claude-edit-displaced-buf)
+          (should-not knayawp--claude-edit-displaced-window))
+      (when (buffer-live-p claude-buf) (kill-buffer claude-buf)))))
+
 (ert-deftest knayawp-test-claude-editor-hook-installed-initially-nil ()
   "Claude editor hook install state is nil before setup."
   (should-not knayawp--claude-editor-hook-installed))
@@ -3101,12 +3219,14 @@ particular after magit's `magit-commit-diff-while-committing'."
   "`knayawp--claude-editor-server-switch' routes file buffers to editor.
 When a layout is active, `knayawp--editor-window' is live, the
 current buffer visits a file, and no commit-flow is active, the
-buffer must be displayed in `knayawp--editor-window'."
+buffer must be displayed in `knayawp--editor-window' under the
+`editor-pane' style."
   (let* ((file-buf (generate-new-buffer " *knayawp-test-claude-file*"))
          (fake-editor-win (selected-window))
          (buf-set nil)
          (win-selected nil)
          (knayawp-claude-editor-flag t)
+         (knayawp-claude-edit-style 'editor-pane)
          (knayawp--active-layouts '(("/fake/" . t)))
          (knayawp--editor-window fake-editor-win)
          (knayawp--commit-pre-state nil))
@@ -3381,6 +3501,7 @@ binary and the socket path."
   (let* ((file-buf (generate-new-buffer " *knayawp-test-abort-key*"))
          (fake-editor-win (selected-window))
          (knayawp-claude-editor-flag t)
+         (knayawp-claude-edit-style 'editor-pane)
          (knayawp--active-layouts '(("/fake/" . t)))
          (knayawp--editor-window fake-editor-win)
          (knayawp--commit-pre-state nil))
