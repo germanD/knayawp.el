@@ -307,6 +307,7 @@ Emacs 27+ `tab-bar-mode` is the natural fit — each tab can represent a project
 - [ ] feat: optional prompt-readiness detection / auto-submit for send-to-Claude (builds on #155) — #116
 - [ ] feat: C-c k c variant — send selection to a NEW Claude session — #156
 - [ ] feat: incremental append to an in-flight send-to-Claude compose buffer — #157
+- [ ] fix: gate send-to-Claude injection on Claude readiness (prompt lost during first-run trust dialog) — #159
 - [ ] kb: stub KB entries for filenotify overlay, Claude notification, send-to-Claude — #117
 - [ ] ci: integrate probe harness into CI/CD pipeline — #125
 - [ ] research: investigate whether Emacs 30 fixes -nw window-toggle-side-windows tree corruption — #142
