@@ -236,18 +236,18 @@ Resolved design decisions:
 ### v0.1.6 — Keymap Hygiene
 
 - [ ] chore: audit knayawp command-map bindings for conflicts with common packages — #128
-- [ ] ci: update GitHub Actions to drop deprecated Node.js 20 runner — #134
+- [x] ci: update GitHub Actions to drop deprecated Node.js 20 runner — #134
 - [ ] infra: Claude editor integration has no end-to-end test coverage — design automated path — #130
 - [ ] feat: add knayawp-claude-edit-style (route temp file into Claude panel, restore on done) — #133
 - [x] feat: return focus to Claude panel after C-c C-c in prompt editor — #135
 - [x] feat: C-c C-k abort binding and message for Claude prompt editor — #143
 - [ ] design: C-c C-c immediate dispatch vs C-x # pre-dispatch semantics — #144
-- [ ] ci: pin runs-on to ubuntu-24.04 to prevent silent OS upgrades — #136
-- [ ] ci: add sanity preflight that verifies ELPA packages load in -Q mode — #137
-- [ ] ci: extract ELPA bootstrap to test/bootstrap-elpa.sh shared by workflow and local dev — #138
-- [ ] docs: document Emacs 29 -nw window-toggle-side-windows bug in probe-lib teardown — #139
-- [ ] ci: add emacs/git/tmux version diagnostic step to probe job — #140
-- [ ] test: ERT asserting sleeping-editor is selected in non-graphic with-editor sessions — #141
+- [x] ci: pin runs-on to ubuntu-24.04 to prevent silent OS upgrades — #136
+- [x] ci: add sanity preflight that verifies ELPA packages load in -Q mode — #137
+- [x] ci: extract ELPA bootstrap to test/bootstrap-elpa.sh shared by workflow and local dev — #138
+- [x] docs: document Emacs 29 -nw window-toggle-side-windows bug in probe-lib teardown — #139
+- [x] ci: add emacs/git/tmux version diagnostic step to probe job — #140
+- [x] test: ERT asserting sleeping-editor is selected in non-graphic with-editor sessions — #141
 - [ ] feat: add knayawp-send-to-claude (C-c k c) — @file and fenced-block references to Claude panel — #115
 - [ ] fix: active terminal window emits wrong error when layout is not running — #132
 - [ ] test: use skip-unless for optional with-editor dependency in ERT test — #150
