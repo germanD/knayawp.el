@@ -2,19 +2,30 @@
 
 ;;; Commentary:
 
-;; Three-scenario probe for `knayawp-send-to-claude' (issue #115).
+;; Four-scenario probe for `knayawp-send-to-claude' (issues #115, #155).
 ;; Run via:
 ;;   test/run-probe.sh test/probes/send-to-claude.el
 ;;
-;; Scenario 1 — Region active, no prefix: kill ring contains
-;;   @file:LN-LM reference; Claude panel (slot 1) is selected.
+;; Scenarios 1-3 pin the `kill-ring' delivery style (the original #115
+;; MVP, now a non-default fallback of `knayawp-send-to-claude-style').
+;; Scenario 4 exercises the new default `compose' style (#155).
 ;;
-;; Scenario 2 — Region active, C-u prefix: kill ring contains a
-;;   fenced code block with the selected text and the file extension
-;;   as the language tag; Claude panel (slot 1) is selected.
+;; Scenario 1 — kill-ring style, region active, no prefix: kill ring
+;;   contains @file:LN-LM reference; Claude panel (slot 1) is selected.
 ;;
-;; Scenario 3 — No region active: kill ring contains bare @file
-;;   reference (no line numbers); Claude panel (slot 1) is selected.
+;; Scenario 2 — kill-ring style, region active, C-u prefix: kill ring
+;;   contains a fenced code block with the selected text and the file
+;;   extension as the language tag; Claude panel (slot 1) is selected.
+;;
+;; Scenario 3 — kill-ring style, no region active: kill ring contains
+;;   bare @file reference (no line numbers); Claude panel is selected.
+;;
+;; Scenario 4 — compose style (default), region active, no prefix:
+;;   a `*knayawp-claude-prompt-*' buffer opens in the editor pane with
+;;   `knayawp-claude-prompt-mode' active and pre-loaded with the
+;;   reference; finishing with `knayawp-claude-prompt-send' injects
+;;   into the Claude panel, restores the editor window, focuses the
+;;   Claude panel (slot 1), and kills the compose buffer.
 ;;
 ;; Note on window counts: `test/sandbox.el' opens a `*knayawp-sandbox*'
 ;; help window.  Full layout: 3 panels + editor + sandbox helper = 5 windows.
@@ -61,9 +72,10 @@ Return the absolute path."
         (activate-mark)
         (knayawp-probe-check "s1-region-active" t (use-region-p) #'eq)
         ;; Stub read-string to return the pre-filled default unchanged.
-        (cl-letf (((symbol-function 'read-string)
-                   (lambda (_prompt initial &rest _) initial)))
-          (knayawp-send-to-claude nil))
+        (let ((knayawp-send-to-claude-style 'kill-ring))
+          (cl-letf (((symbol-function 'read-string)
+                     (lambda (_prompt initial &rest _) initial)))
+            (knayawp-send-to-claude nil)))
         (stc--settle)
         ;; Kill ring must contain an @file:L1-L3 style reference.
         (let* ((entry (car kill-ring))
@@ -102,9 +114,10 @@ Return the absolute path."
         (activate-mark)
         (knayawp-probe-check "s2-region-active" t (use-region-p) #'eq)
         ;; C-u prefix is simulated by passing a non-nil ARG.
-        (cl-letf (((symbol-function 'read-string)
-                   (lambda (_prompt initial &rest _) initial)))
-          (knayawp-send-to-claude '(4)))
+        (let ((knayawp-send-to-claude-style 'kill-ring))
+          (cl-letf (((symbol-function 'read-string)
+                     (lambda (_prompt initial &rest _) initial)))
+            (knayawp-send-to-claude '(4))))
         (stc--settle)
         ;; Kill ring must contain a fenced ```el ... ``` block.
         (let ((entry (car kill-ring)))
@@ -148,9 +161,10 @@ Return the absolute path."
         ;; Ensure no region is active.
         (deactivate-mark)
         (knayawp-probe-check "s3-no-region" nil (use-region-p) #'eq)
-        (cl-letf (((symbol-function 'read-string)
-                   (lambda (_prompt initial &rest _) initial)))
-          (knayawp-send-to-claude nil))
+        (let ((knayawp-send-to-claude-style 'kill-ring))
+          (cl-letf (((symbol-function 'read-string)
+                     (lambda (_prompt initial &rest _) initial)))
+            (knayawp-send-to-claude nil)))
         (stc--settle)
         ;; Kill ring must contain @file with no line numbers.
         (let* ((entry (car kill-ring))
@@ -171,6 +185,61 @@ Return the absolute path."
     (error (knayawp-probe-abort "s3 failed: %S" e)))
   (knayawp-probe-teardown-layout))
 
+;;;; Scenario 4: compose style (default) => editor-pane prompt buffer
+
+(defun stc--scenario-4 ()
+  "Scenario 4 — compose style: prompt buffer opens, send injects + focuses."
+  (knayawp-probe-section
+   "SCENARIO 4 -- compose style => editor-pane prompt buffer, send focuses Claude")
+  (condition-case e
+      (let* ((default-directory (file-name-as-directory sandbox--test-dir))
+             (test-file (stc--make-test-file "stc-test4.el"
+                                             ";; c1\n;; c2\n;; c3\n")))
+        (knayawp-probe-setup-layout)
+        (stc--open-test-file test-file)
+        ;; Select lines 1-3.
+        (goto-char (point-min))
+        (set-mark (point-min))
+        (goto-char (point-max))
+        (activate-mark)
+        (knayawp-probe-check "s4-region-active" t (use-region-p) #'eq)
+        ;; Default style is `compose'; open the prompt buffer.
+        (knayawp-send-to-claude nil)
+        (stc--settle)
+        ;; The compose buffer must be current, in prompt mode, holding the ref.
+        (knayawp-probe-check "s4-compose-buffer-current"
+                             t
+                             (not (null (string-match-p
+                                         "\\*knayawp-claude-prompt-"
+                                         (buffer-name))))
+                             #'eq)
+        (knayawp-probe-check "s4-prompt-mode-active"
+                             t (and knayawp-claude-prompt-mode t) #'eq)
+        (knayawp-probe-check "s4-reference-preloaded"
+                             t
+                             (not (null (string-match-p
+                                         "@stc-test4\\.el:L"
+                                         (buffer-string))))
+                             #'eq)
+        ;; The compose buffer must live in a non-side (editor) window.
+        (knayawp-probe-check "s4-editor-window-not-side"
+                             nil
+                             (window-parameter (selected-window) 'window-side)
+                             #'eq)
+        ;; Finish: inject into Claude, restore editor, focus Claude panel.
+        (let ((compose-buf (current-buffer)))
+          (knayawp-claude-prompt-send)
+          (stc--settle)
+          (knayawp-probe-check "s4-compose-buffer-killed"
+                               nil (buffer-live-p compose-buf) #'eq))
+        (knayawp-probe-check "s4-prompt-var-cleared"
+                             nil knayawp--claude-prompt-buffer #'eq)
+        (knayawp-probe-assert-selected-window-slot 1 "s4-claude-panel-selected")
+        (knayawp-probe-assert-selected-window-side 'right "s4-claude-panel-side")
+        (knayawp-probe-assert-total-window-count 5 "s4-full-layout-restored"))
+    (error (knayawp-probe-abort "s4 failed: %S" e)))
+  (knayawp-probe-teardown-layout))
+
 ;;;; Drive all scenarios
 
 (knayawp-probe-watchdog 90)
@@ -180,7 +249,8 @@ Return the absolute path."
       (knayawp-probe-log "  probe start  default-directory=%S" default-directory)
       (stc--scenario-1)
       (stc--scenario-2)
-      (stc--scenario-3))
+      (stc--scenario-3)
+      (stc--scenario-4))
   (error (knayawp-probe-abort "top-level error: %S" e)))
 
 (knayawp-probe-finish)
