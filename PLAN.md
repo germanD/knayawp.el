@@ -301,6 +301,7 @@ Emacs 27+ `tab-bar-mode` is the natural fit — each tab can represent a project
 - [ ] kb: stub KB entries for filenotify overlay, Claude notification, send-to-Claude — #117
 - [ ] ci: integrate probe harness into CI/CD pipeline — #125
 - [ ] research: investigate whether Emacs 30 fixes -nw window-toggle-side-windows tree corruption — #142
+- [ ] feat: predictive/semantic auto-completion in send-to-Claude editor buffer (needs analysis/discussion) — #153
 
 ### v0.2.1 — Visual Navigation Bar
 - [ ] Customize `tab-bar-format` to show project names prominently
