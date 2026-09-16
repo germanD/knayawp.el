@@ -782,6 +782,8 @@ Signal `user-error' when no terminal panel window exists."
     (when (and (not wins) (frame-parameter nil 'knayawp--monocle-config))
       (user-error "Terminal panel hidden — exit monocle first with %s"
                   (substitute-command-keys "\\[knayawp-monocle-panel]")))
+    (when (and (not wins) knayawp--claude-edit-zoom-winconf)
+      (user-error "Claude edit in progress — finish or abort it first"))
     (unless wins
       (user-error "No terminal panel window — run knayawp-layout-setup first"))
     (or (seq-find (lambda (w) (eq w (selected-window))) wins)
@@ -1820,6 +1822,12 @@ can restore the layout."
   ;; meaningless once the layout is gone.
   (setq knayawp--zoomed-panel nil)
   (set-frame-parameter nil 'knayawp--monocle-config nil)
+  ;; Clear any in-flight Claude edit state for the same reason: a
+  ;; teardown mid-edit must not leave stale restore targets that a
+  ;; later edit's finish could act on.
+  (setq knayawp--claude-edit-displaced-buf nil
+        knayawp--claude-edit-displaced-window nil
+        knayawp--claude-edit-zoom-winconf nil)
   ;; Save to winner ring before deleting side windows, so the full
   ;; layout (including panels) enters the undo history.  Only when
   ;; the flag is on AND winner-mode is actually active — no-op
@@ -2398,11 +2406,11 @@ displaced Claude buffer/window into
 `knayawp--claude-edit-displaced-window' for later restore; it falls
 back to the editor pane when no Claude panel window is live.
 `zoom' shows BUF in the editor pane, saves the current window
-configuration into `knayawp--claude-edit-zoom-winconf', then deletes
-the knayawp side windows so the editor pane fills the frame.  Side
-windows carry the `no-delete-other-windows' parameter and so are not
-removed by `delete-other-windows'; they are deleted explicitly, the
-same technique `knayawp-monocle-panel' uses."
+configuration into `knayawp--claude-edit-zoom-winconf', deletes the
+knayawp side windows (which carry `no-delete-other-windows' and so
+survive `delete-other-windows'), then calls `delete-other-windows'
+so the editor pane alone fills the frame.  The saved configuration
+is restored when the edit finishes."
   (pcase knayawp-claude-edit-style
     ('claude-panel
      (let ((claude-win (knayawp--claude-panel-window)))
@@ -2432,7 +2440,7 @@ same technique `knayawp-monocle-panel' uses."
      knayawp--editor-window)))
 
 (defun knayawp--claude-editor-server-switch ()
-  "Route emacsclient-opened files for Claude per `knayawp-claude-edit-style'.
+  "Route an emacsclient file per `knayawp-claude-edit-style'.
 Added to `server-switch-hook' with APPEND so it runs after magit's
 own handlers.  No-op unless all four conditions hold:
 

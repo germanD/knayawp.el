@@ -1587,6 +1587,17 @@ In batch mode no side windows exist, so the function must signal a
   (should-error (knayawp--active-terminal-window)
                 :type 'user-error))
 
+(ert-deftest knayawp-test-active-terminal-window-claude-edit-zoom ()
+  "Signal a Claude-edit `user-error' during a zoom-style edit.
+When no side windows exist and `knayawp--claude-edit-zoom-winconf'
+is set, the error must name the in-progress edit rather than the
+misleading \"run knayawp-layout-setup first\" fallback."
+  (let ((knayawp--zoomed-panel nil)
+        (knayawp--claude-edit-zoom-winconf (current-window-configuration)))
+    (let ((err (should-error (knayawp--active-terminal-window)
+                             :type 'user-error)))
+      (should (string-match-p "Claude edit in progress" (cadr err))))))
+
 (ert-deftest knayawp-test-active-terminal-window-prefers-current ()
   "Return the selected window when it is a terminal panel window."
   (let ((knayawp-panels '((magit  :slot -1)
