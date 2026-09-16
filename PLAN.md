@@ -248,8 +248,8 @@ Resolved design decisions:
 - [x] docs: document Emacs 29 -nw window-toggle-side-windows bug in probe-lib teardown — #139
 - [x] ci: add emacs/git/tmux version diagnostic step to probe job — #140
 - [x] test: ERT asserting sleeping-editor is selected in non-graphic with-editor sessions — #141
-- [ ] feat: add knayawp-send-to-claude (C-c k c) — @file and fenced-block references to Claude panel — #115
-- [ ] fix: active terminal window emits wrong error when layout is not running — #132
+- [x] feat: add knayawp-send-to-claude (C-c k c) — @file and fenced-block references to Claude panel — #115
+- [x] fix: active terminal window emits wrong error when layout is not running — #132
 - [ ] test: use skip-unless for optional with-editor dependency in ERT test — #150
 - [ ] test: remove vacuous (should (null ...)) assertion in sleeping-editor ERT test — #151
 - [ ] ci: clarify set -euo pipefail intent in bootstrap-elpa.sh — #152
