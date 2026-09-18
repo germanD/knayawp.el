@@ -238,7 +238,7 @@ Resolved design decisions:
 - [ ] chore: audit knayawp command-map bindings for conflicts with common packages — #128
 - [x] ci: update GitHub Actions to drop deprecated Node.js 20 runner — #134
 - [ ] infra: Claude editor integration has no end-to-end test coverage — design automated path — #130
-- [ ] feat: add knayawp-claude-edit-style (route temp file into Claude panel, restore on done) — #133
+- [x] feat: add knayawp-claude-edit-style (route temp file into Claude panel, restore on done) — #133
 - [x] feat: return focus to Claude panel after C-c C-c in prompt editor — #135
 - [x] feat: C-c C-k abort binding and message for Claude prompt editor — #143
 - [ ] feat: shared auto-dispatch option (simulate Enter on finish) for Claude prompt editor and send-to-Claude compose — #144
@@ -250,11 +250,11 @@ Resolved design decisions:
 - [x] test: ERT asserting sleeping-editor is selected in non-graphic with-editor sessions — #141
 - [x] feat: add knayawp-send-to-claude (C-c k c) — @file and fenced-block references to Claude panel — #115
   - Note: the #115 MVP only builds a reference and pushes it to the kill ring (manual yank); it does not deliver to the Claude process. Delivery is #155 below.
-- [ ] feat: send-to-Claude via editor-pane compose buffer + panel injection (new C-c k c default) — #155
+- [x] feat: send-to-Claude via editor-pane compose buffer + panel injection (new C-c k c default) — #155
 - [x] fix: active terminal window emits wrong error when layout is not running — #132
-- [ ] test: use skip-unless for optional with-editor dependency in ERT test — #150
-- [ ] test: remove vacuous (should (null ...)) assertion in sleeping-editor ERT test — #151
-- [ ] ci: clarify set -euo pipefail intent in bootstrap-elpa.sh — #152
+- [x] test: use skip-unless for optional with-editor dependency in ERT test — #150
+- [x] test: remove vacuous (should (null ...)) assertion in sleeping-editor ERT test — #151
+- [x] ci: clarify set -euo pipefail intent in bootstrap-elpa.sh — #152
 
 ---
 
