@@ -821,6 +821,27 @@ terminal process using the backend-appropriate paste command:
       (_ (user-error "Unknown terminal backend: %s"
                      knayawp-terminal-backend)))))
 
+;;;###autoload
+(defun knayawp-send-to-terminal ()
+  "Send the active region to the terminal panel.
+Copy the selected region to the kill ring and yank it into the
+terminal panel, then select that window.  No automatic RET is
+sent — the text lands at the shell prompt for the user to review
+before submitting.
+Signal `user-error' when there is no active region or no
+terminal panel window."
+  (interactive)
+  (unless (use-region-p)
+    (user-error "No active region"))
+  (kill-ring-save (region-beginning) (region-end))
+  (let ((win (knayawp--active-terminal-window)))
+    (select-window win)
+    (pcase knayawp-terminal-backend
+      ('vterm (knayawp--make-terminal-yank-vterm win))
+      ('eat  (knayawp--make-terminal-yank-eat win))
+      (_ (user-error "Unknown terminal backend: %s"
+                     knayawp-terminal-backend)))))
+
 (defun knayawp-claude-send-ctrl-x ()
   "Send the Control-x byte to the Claude panel terminal.
 The Control-x prefix cannot be overridden in a buffer-local
@@ -2170,6 +2191,7 @@ key."
   (define-key map "y" #'knayawp-terminal-yank)
   (define-key map (kbd "C-x") #'knayawp-claude-send-ctrl-x)
   (define-key map "c" #'knayawp-send-to-claude)
+  (define-key map "t" #'knayawp-send-to-terminal)
   map)
 
 (defun knayawp--build-command-map ()
