@@ -242,7 +242,7 @@ Resolved design decisions:
 - [x] feat: return focus to Claude panel after C-c C-c in prompt editor — #135
 - [x] feat: C-c C-k abort binding and message for Claude prompt editor — #143
 - [ ] feat: shared auto-dispatch option (simulate Enter on finish) for Claude prompt editor and send-to-Claude compose — #144
-- [ ] feat: knayawp-send-to-terminal — send editor selection to the terminal panel (C-c k t) — #162
+- [x] feat: knayawp-send-to-terminal — send editor selection to the terminal panel (C-c k t) — #162
 - [x] ci: pin runs-on to ubuntu-24.04 to prevent silent OS upgrades — #136
 - [x] ci: add sanity preflight that verifies ELPA packages load in -Q mode — #137
 - [x] ci: extract ELPA bootstrap to test/bootstrap-elpa.sh shared by workflow and local dev — #138
