@@ -3632,4 +3632,34 @@ This test verifies the API invariant that guards `test/sandbox.el': the
     (should (stringp with-editor-sleeping-editor))
     (should (not (string-empty-p with-editor-sleeping-editor)))))
 
+;;;; claude-edit-finish-and-dispatch (#144)
+
+(ert-deftest knayawp-test-finish-and-dispatch-calls-finish ()
+  "`knayawp--claude-edit-finish-and-dispatch' calls `knayawp--claude-edit-finish'."
+  (let ((finish-called nil))
+    (cl-letf (((symbol-function 'knayawp--claude-edit-finish)
+               (lambda () (setq finish-called t)))
+              ((symbol-function 'knayawp--claude-panel-send-string) #'ignore))
+      (knayawp--claude-edit-finish-and-dispatch)
+      (should finish-called))))
+
+(ert-deftest knayawp-test-finish-and-dispatch-sends-return ()
+  "`knayawp--claude-edit-finish-and-dispatch' sends \"\\r\" to the Claude panel."
+  (let ((sent-string nil))
+    (cl-letf (((symbol-function 'knayawp--claude-edit-finish) #'ignore)
+              ((symbol-function 'knayawp--claude-panel-send-string)
+               (lambda (s) (setq sent-string s))))
+      (knayawp--claude-edit-finish-and-dispatch)
+      (should (equal sent-string "\r")))))
+
+(ert-deftest knayawp-test-finish-and-dispatch-order ()
+  "`knayawp--claude-edit-finish-and-dispatch' calls finish before send-string."
+  (let ((call-order nil))
+    (cl-letf (((symbol-function 'knayawp--claude-edit-finish)
+               (lambda () (push 'finish call-order)))
+              ((symbol-function 'knayawp--claude-panel-send-string)
+               (lambda (_s) (push 'send call-order))))
+      (knayawp--claude-edit-finish-and-dispatch)
+      (should (equal (nreverse call-order) '(finish send))))))
+
 ;;; knayawp-test.el ends here
