@@ -2404,6 +2404,18 @@ manual window switch."
   (knayawp--claude-edit-restore-display)
   (knayawp--claude-edit-select-window))
 
+(defun knayawp--claude-edit-finish-and-dispatch ()
+  "Finish the Claude edit and auto-dispatch the assembled prompt.
+Calls `knayawp--claude-edit-finish' (save, signal done, restore
+display, focus Claude panel), then sends a carriage return to the
+Claude panel terminal so Claude receives the prompt without the
+user pressing Enter manually.  Bound to the send+dispatch key in
+the Claude edit buffer — the fast path that mirrors the magit
+finish-and-submit muscle memory."
+  (interactive)
+  (knayawp--claude-edit-finish)
+  (knayawp--claude-panel-send-string "\r"))
+
 (defun knayawp--claude-edit-abort ()
   "Discard the Claude prompt draft and return focus to the Claude panel.
 Marks the buffer unmodified so `server-edit' completes without a save
@@ -2494,8 +2506,8 @@ abort handlers unwind; see `knayawp--claude-edit-restore-display'."
         (select-window win))
       (with-current-buffer buf
         (setq-local header-line-format
-                    "Claude edit — C-c C-c/C-x # to send, C-c C-k to discard")
-        (local-set-key (kbd "C-c C-c") #'knayawp--claude-edit-finish)
+                    "Claude edit — C-c C-c send+dispatch, C-x # send, C-c C-k discard")
+        (local-set-key (kbd "C-c C-c") #'knayawp--claude-edit-finish-and-dispatch)
         (local-set-key (kbd "C-x #") #'knayawp--claude-edit-finish)
         (local-set-key (kbd "C-c C-k") #'knayawp--claude-edit-abort)))))
 
