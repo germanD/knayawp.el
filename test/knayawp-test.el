@@ -1549,9 +1549,12 @@ passive-loading discipline carries through to the customize path)."
     (should-error (knayawp-send-to-claude nil) :type 'user-error)))
 
 (ert-deftest knayawp-test-claude-prompt-mode-map-bindings ()
-  "The compose keymap binds send and abort to the expected commands."
-  (should (eq 'knayawp-claude-prompt-send
+  "The compose keymap splits send+dispatch, send, and abort (#144).
+C-c C-c dispatches immediately, C-x # sends for review, C-c C-k aborts."
+  (should (eq 'knayawp-claude-prompt-send-and-dispatch
               (lookup-key knayawp-claude-prompt-mode-map (kbd "C-c C-c"))))
+  (should (eq 'knayawp-claude-prompt-send
+              (lookup-key knayawp-claude-prompt-mode-map (kbd "C-x #"))))
   (should (eq 'knayawp-claude-prompt-abort
               (lookup-key knayawp-claude-prompt-mode-map (kbd "C-c C-k")))))
 
@@ -1560,6 +1563,20 @@ passive-loading discipline carries through to the customize path)."
   (with-temp-buffer
     (insert "   \n\n")
     (should-error (knayawp-claude-prompt-send) :type 'user-error)))
+
+(ert-deftest knayawp-test-claude-prompt-send-and-dispatch-sends-return ()
+  "`knayawp-claude-prompt-send-and-dispatch' sends \"\\r\" after the prompt.
+Delivery is delegated to `knayawp-claude-prompt-send'; the dispatch
+wrapper then sends a carriage return so Claude submits the prompt."
+  (let ((sends nil))
+    (cl-letf (((symbol-function 'knayawp-claude-prompt-send)
+               (lambda () (push 'send sends)))
+              ((symbol-function 'knayawp--claude-panel-send-string)
+               (lambda (s) (push s sends)))
+              ((symbol-function 'message) #'ignore))
+      (knayawp-claude-prompt-send-and-dispatch)
+      ;; Prompt delivered first, carriage return second.
+      (should (equal (nreverse sends) '(send "\r"))))))
 
 (ert-deftest knayawp-test-claude-panel-send-string-no-panel ()
   "`knayawp--claude-panel-send-string' errors when no Claude window exists."

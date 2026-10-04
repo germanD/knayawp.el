@@ -2,13 +2,14 @@
 
 ;;; Commentary:
 
-;; Four-scenario probe for `knayawp-send-to-claude' (issues #115, #155).
+;; Five-scenario probe for `knayawp-send-to-claude' (issues #115, #155, #144).
 ;; Run via:
 ;;   test/run-probe.sh test/probes/send-to-claude.el
 ;;
 ;; Scenarios 1-3 pin the `kill-ring' delivery style (the original #115
 ;; MVP, now a non-default fallback of `knayawp-send-to-claude-style').
-;; Scenario 4 exercises the new default `compose' style (#155).
+;; Scenarios 4-5 exercise the default `compose' style (#155) and its
+;; two finish paths (#144).
 ;;
 ;; Scenario 1 — kill-ring style, region active, no prefix: kill ring
 ;;   contains @file:LN-LM reference; Claude panel (slot 1) is selected.
@@ -23,9 +24,18 @@
 ;; Scenario 4 — compose style (default), region active, no prefix:
 ;;   a `*knayawp-claude-prompt-*' buffer opens in the editor pane with
 ;;   `knayawp-claude-prompt-mode' active and pre-loaded with the
-;;   reference; finishing with `knayawp-claude-prompt-send' injects
-;;   into the Claude panel, restores the editor window, focuses the
-;;   Claude panel (slot 1), and kills the compose buffer.
+;;   reference; finishing with `knayawp-claude-prompt-send' (the C-x #
+;;   review path) injects into the Claude panel, restores the editor
+;;   window, focuses the Claude panel (slot 1), and kills the compose
+;;   buffer.
+;;
+;; Scenario 5 — compose style, dispatch path (#144): finishing with
+;;   `knayawp-claude-prompt-send-and-dispatch' (the C-c C-c path)
+;;   delivers the prompt, focuses the Claude panel, kills the compose
+;;   buffer, and additionally sends a carriage return ("\r") to the
+;;   Claude panel terminal so the prompt is submitted.  `send-string'
+;;   is stubbed to record the strings sent (returning the real Claude
+;;   window so focus still resolves).
 ;;
 ;; Note on window counts: `test/sandbox.el' opens a `*knayawp-sandbox*'
 ;; help window.  Full layout: 3 panels + editor + sandbox helper = 5 windows.
@@ -240,6 +250,58 @@ Return the absolute path."
     (error (knayawp-probe-abort "s4 failed: %S" e)))
   (knayawp-probe-teardown-layout))
 
+;;;; Scenario 5: compose style, dispatch path (#144)
+
+(defun stc--scenario-5 ()
+  "Scenario 5 — compose dispatch: send+dispatch focuses Claude and sends \\r."
+  (knayawp-probe-section
+   "SCENARIO 5 -- compose dispatch => send-and-dispatch focuses Claude, sends \\r")
+  (condition-case e
+      (let* ((default-directory (file-name-as-directory sandbox--test-dir))
+             (test-file (stc--make-test-file "stc-test5.el"
+                                             ";; d1\n;; d2\n;; d3\n"))
+             (sent-strings nil))
+        (knayawp-probe-setup-layout)
+        (stc--open-test-file test-file)
+        ;; Select lines 1-3.
+        (goto-char (point-min))
+        (set-mark (point-min))
+        (goto-char (point-max))
+        (activate-mark)
+        (knayawp-probe-check "s5-region-active" t (use-region-p) #'eq)
+        ;; Open the compose buffer (default `compose' style).
+        (knayawp-send-to-claude nil)
+        (stc--settle)
+        (knayawp-probe-check "s5-compose-buffer-current"
+                             t
+                             (not (null (string-match-p
+                                         "\\*knayawp-claude-prompt-"
+                                         (buffer-name))))
+                             #'eq)
+        ;; Finish via the dispatch path with send-string stubbed to record
+        ;; the strings sent and return the real Claude window so focus works.
+        (let ((compose-buf (current-buffer)))
+          (cl-letf (((symbol-function 'knayawp--claude-panel-send-string)
+                     (lambda (s)
+                       (push s sent-strings)
+                       (knayawp--claude-panel-window))))
+            (knayawp-claude-prompt-send-and-dispatch))
+          (stc--settle)
+          (knayawp-probe-check "s5-compose-buffer-killed"
+                               nil (buffer-live-p compose-buf) #'eq))
+        (knayawp-probe-check "s5-prompt-var-cleared"
+                             nil knayawp--claude-prompt-buffer #'eq)
+        (knayawp-probe-assert-selected-window-slot 1 "s5-claude-panel-selected")
+        (knayawp-probe-assert-selected-window-side 'right "s5-claude-panel-side")
+        (knayawp-probe-assert-total-window-count 5 "s5-full-layout-restored")
+        ;; Two sends: the prompt text, then a carriage return.
+        (let ((ordered (nreverse sent-strings)))
+          (knayawp-probe-check "s5-two-sends" 2 (length ordered) #'=)
+          (knayawp-probe-check "s5-return-sent-last"
+                               "\r" (car (last ordered)))))
+    (error (knayawp-probe-abort "s5 failed: %S" e)))
+  (knayawp-probe-teardown-layout))
+
 ;;;; Drive all scenarios
 
 (knayawp-probe-watchdog 90)
@@ -250,7 +312,8 @@ Return the absolute path."
       (stc--scenario-1)
       (stc--scenario-2)
       (stc--scenario-3)
-      (stc--scenario-4))
+      (stc--scenario-4)
+      (stc--scenario-5))
   (error (knayawp-probe-abort "top-level error: %S" e)))
 
 (knayawp-probe-finish)

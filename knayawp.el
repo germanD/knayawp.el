@@ -943,16 +943,21 @@ in-flight draft instead of starting over.")
 
 (defvar knayawp-claude-prompt-mode-map
   (let ((map (make-sparse-keymap)))
-    (define-key map (kbd "C-c C-c") #'knayawp-claude-prompt-send)
+    (define-key map (kbd "C-c C-c") #'knayawp-claude-prompt-send-and-dispatch)
+    (define-key map (kbd "C-x #") #'knayawp-claude-prompt-send)
     (define-key map (kbd "C-c C-k") #'knayawp-claude-prompt-abort)
     map)
   "Keymap for `knayawp-claude-prompt-mode'.")
 
 (define-minor-mode knayawp-claude-prompt-mode
   "Minor mode for the send-to-Claude compose buffer.
-\\<knayawp-claude-prompt-mode-map>Finish with \
-\\[knayawp-claude-prompt-send] to inject the prompt into the Claude
-panel, or \\[knayawp-claude-prompt-abort] to discard the draft.
+
+\\<knayawp-claude-prompt-mode-map>\
+Send and submit immediately with \
+\\[knayawp-claude-prompt-send-and-dispatch].
+Send for review (submit yourself) with \
+\\[knayawp-claude-prompt-send].
+Discard the draft with \\[knayawp-claude-prompt-abort].
 
 \\{knayawp-claude-prompt-mode-map}"
   :lighter " Claude→"
@@ -961,6 +966,7 @@ panel, or \\[knayawp-claude-prompt-abort] to discard the draft.
     (setq-local header-line-format
                 (substitute-command-keys
                  "Compose prompt for Claude — \
+\\[knayawp-claude-prompt-send-and-dispatch] send+dispatch, \
 \\[knayawp-claude-prompt-send] send, \
 \\[knayawp-claude-prompt-abort] discard"))))
 
@@ -1023,12 +1029,14 @@ when the compose buffer was displayed."
       (set-window-buffer ow pb))))
 
 (defun knayawp-claude-prompt-send ()
-  "Inject the compose buffer's prompt into the Claude panel.
+  "Inject the compose buffer's prompt into the Claude panel for review.
 Send the trimmed buffer contents to the Claude terminal via the
 dispatch layer, restore the editor window's previous buffer, focus
-the Claude panel so the prompt can be dispatched with RET, and
-kill the draft.  Signal `user-error' when the buffer is empty or
-no Claude panel is available."
+the Claude panel so the prompt can be reviewed and dispatched with
+RET, and kill the draft.  This is the review path; see
+`knayawp-claude-prompt-send-and-dispatch' for the fast path that
+submits immediately.  Signal `user-error' when the buffer is empty
+or no Claude panel is available."
   (interactive)
   (let ((text (string-trim (buffer-string))))
     (when (string= "" text)
@@ -1042,6 +1050,19 @@ no Claude panel is available."
         (select-window win))
       (kill-buffer buf)
       (message "knayawp: Prompt sent to Claude — press RET to dispatch"))))
+
+(defun knayawp-claude-prompt-send-and-dispatch ()
+  "Inject the compose prompt into the Claude panel and submit it.
+Call `knayawp-claude-prompt-send' to deliver the prompt and focus
+the Claude panel, then send a carriage return to the Claude panel
+terminal so Claude receives the prompt without the user pressing
+Enter manually.  This is the fast path, mirroring the magit
+finish-and-submit muscle memory; `knayawp-claude-prompt-send' is
+the review path that leaves submission to the user."
+  (interactive)
+  (knayawp-claude-prompt-send)
+  (knayawp--claude-panel-send-string "\r")
+  (message "knayawp: Prompt dispatched to Claude"))
 
 (defun knayawp-claude-prompt-abort ()
   "Discard the compose buffer without sending, restore the editor window.
