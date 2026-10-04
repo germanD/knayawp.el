@@ -3577,7 +3577,9 @@ binary and the socket path."
       (should selected))))
 
 (ert-deftest knayawp-test-claude-edit-abort-discards-and-selects-claude ()
-  "`knayawp--claude-edit-abort' marks unmodified, signals done, then focuses Claude."
+  "`knayawp--claude-edit-abort' discards and falls back to the Claude panel.
+With no live origin window recorded (the default), focus falls back to
+`knayawp--claude-edit-select-window'."
   (let ((marked-clean nil) (edited nil) (messaged nil) (selected nil))
     (cl-letf (((symbol-function 'set-buffer-modified-p)
                (lambda (flag) (setq marked-clean (not flag))))
@@ -3591,6 +3593,44 @@ binary and the socket path."
       (should edited)
       (should (string-match-p "discarded" messaged))
       (should selected))))
+
+(ert-deftest knayawp-test-claude-edit-abort-returns-to-origin-window ()
+  "`knayawp--claude-edit-abort' selects the origin window when it is live.
+The edit was triggered from a window other than the Claude panel, so
+focus must return there rather than to the Claude panel fallback."
+  (let ((origin-win (selected-window)) (selected nil) (fallback nil))
+    (with-temp-buffer
+      (setq-local knayawp--claude-edit-origin-window origin-win)
+      (cl-letf (((symbol-function 'server-edit) #'ignore)
+                ((symbol-function 'message) #'ignore)
+                ((symbol-function 'knayawp--claude-edit-restore-display)
+                 #'ignore)
+                ((symbol-function 'select-window)
+                 (lambda (w &rest _) (setq selected w)))
+                ((symbol-function 'knayawp--claude-edit-select-window)
+                 (lambda () (setq fallback t))))
+        (knayawp--claude-edit-abort)
+        (should (eq selected origin-win))
+        (should-not fallback)))))
+
+(ert-deftest knayawp-test-claude-edit-abort-falls-back-when-origin-dead ()
+  "`knayawp--claude-edit-abort' focuses the Claude panel when origin is dead.
+A nil or dead origin window must not be selected; focus falls back to
+`knayawp--claude-edit-select-window'."
+  (let ((selected nil) (fallback nil))
+    (with-temp-buffer
+      (setq-local knayawp--claude-edit-origin-window nil)
+      (cl-letf (((symbol-function 'server-edit) #'ignore)
+                ((symbol-function 'message) #'ignore)
+                ((symbol-function 'knayawp--claude-edit-restore-display)
+                 #'ignore)
+                ((symbol-function 'select-window)
+                 (lambda (w &rest _) (setq selected w)))
+                ((symbol-function 'knayawp--claude-edit-select-window)
+                 (lambda () (setq fallback t))))
+        (knayawp--claude-edit-abort)
+        (should fallback)
+        (should-not selected)))))
 
 (ert-deftest knayawp-test-claude-editor-server-switch-binds-abort ()
   "`knayawp--claude-editor-server-switch' binds C-c C-k to abort in the edit buffer."
