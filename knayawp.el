@@ -593,6 +593,20 @@ Set by `knayawp--claude-editor-server-switch' when
 window is expanded to fill the frame.  Restored by the finish and
 abort handlers.  Nil when no `zoom' edit is in progress.")
 
+(defvar-local knayawp--claude-edit-origin-window nil
+  "Window selected when this Claude edit buffer was set up.
+Recorded by `knayawp--claude-editor-server-switch' before it
+routes the edit buffer, so `knayawp--claude-edit-abort' can
+return focus to the window the edit was triggered from rather
+than always selecting the Claude panel.  For an edit launched
+from inside the Claude panel (the quit-key flow) this is the
+Claude panel itself; for an edit triggered from the editor pane
+or another managed panel it is that window.  Nil in buffers that
+are not knayawp Claude
+edits, and may reference a now-dead window (e.g. after a `zoom'
+edit deletes the side windows), so callers must guard with
+`window-live-p'.")
+
 ;;;; Project detection
 
 (defun knayawp--project-root ()
@@ -2471,17 +2485,23 @@ to `knayawp--claude-edit-finish' (the `C-x #' review path)."
   (knayawp--claude-edit-finish knayawp-claude-auto-dispatch))
 
 (defun knayawp--claude-edit-abort ()
-  "Discard the Claude prompt draft and return focus to the Claude panel.
+  "Discard the Claude prompt draft and return focus to the edit's origin.
 Marks the buffer unmodified so `server-edit' completes without a save
 prompt, leaving the on-disk temp file unchanged.  Restores any display
 change made for the edit (see `knayawp--claude-edit-restore-display')
-before returning focus.  Mirrors the magit abort convention."
+before returning focus.  Focus goes back to
+`knayawp--claude-edit-origin-window' — the window the edit was
+triggered from — when it is still live; otherwise it falls back to the
+Claude panel.  Mirrors the magit abort convention."
   (interactive)
-  (set-buffer-modified-p nil)
-  (server-edit)
-  (knayawp--claude-edit-restore-display)
-  (message "knayawp: Prompt discarded")
-  (knayawp--claude-edit-select-window))
+  (let ((origin knayawp--claude-edit-origin-window))
+    (set-buffer-modified-p nil)
+    (server-edit)
+    (knayawp--claude-edit-restore-display)
+    (message "knayawp: Prompt discarded")
+    (if (window-live-p origin)
+        (select-window origin)
+      (knayawp--claude-edit-select-window))))
 
 (defun knayawp--claude-edit-display-buffer (buf)
   "Display BUF for a Claude edit per `knayawp-claude-edit-style'.
@@ -2555,10 +2575,12 @@ abort handlers unwind; see `knayawp--claude-edit-restore-display'."
              (buffer-file-name)
              (not (knayawp--commit-flow-active-p)))
     (let* ((buf (current-buffer))
+           (origin (selected-window))
            (win (knayawp--claude-edit-display-buffer buf)))
       (when (window-live-p win)
         (select-window win))
       (with-current-buffer buf
+        (setq-local knayawp--claude-edit-origin-window origin)
         (setq-local header-line-format
                     (if knayawp-claude-auto-dispatch
                         (substitute-command-keys
