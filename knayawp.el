@@ -177,6 +177,19 @@ behavior)."
                  (const :tag "Minibuffer + kill ring" kill-ring))
   :group 'knayawp)
 
+(defcustom knayawp-claude-auto-dispatch t
+  "Whether the send-and-dispatch command auto-submits the prompt.
+When non-nil (the default), `knayawp-claude-prompt-send-and-dispatch'
+and `knayawp--claude-edit-finish-and-dispatch' deliver the prompt and
+send a carriage return to the Claude panel terminal so the prompt is
+submitted without the user pressing Enter.
+When nil, both commands deliver the prompt and focus the Claude panel;
+the user presses Enter to dispatch.
+Applies to both the Claude edit buffer (opened via the Claude CLI
+abort flow) and the send-to-Claude compose buffer."
+  :type 'boolean
+  :group 'knayawp)
+
 (defcustom knayawp-magit-commit-style 'zoom
   "Strategy for displaying magit commit-message buffers.
 
@@ -965,11 +978,17 @@ Discard the draft with \\[knayawp-claude-prompt-abort].
   :keymap knayawp-claude-prompt-mode-map
   (when knayawp-claude-prompt-mode
     (setq-local header-line-format
-                (substitute-command-keys
-                 "Compose prompt for Claude — \
+                (if knayawp-claude-auto-dispatch
+                    (substitute-command-keys
+                     "Compose prompt for Claude — \
 \\[knayawp-claude-prompt-send-and-dispatch] send+dispatch, \
 \\[knayawp-claude-prompt-send] send, \
-\\[knayawp-claude-prompt-abort] discard"))))
+\\[knayawp-claude-prompt-abort] discard")
+                  (substitute-command-keys
+                   "Compose prompt for Claude — \
+\\[knayawp-claude-prompt-send-and-dispatch]/\
+\\[knayawp-claude-prompt-send] send, \
+\\[knayawp-claude-prompt-abort] discard")))))
 
 (defun knayawp--claude-prompt-target-window ()
   "Return the window to host the compose buffer, or nil.
@@ -1065,14 +1084,13 @@ available."
         (message "knayawp: Prompt sent to Claude — press RET to dispatch")))))
 
 (defun knayawp-claude-prompt-send-and-dispatch ()
-  "Inject the compose prompt into the Claude panel and submit it.
-Call `knayawp-claude-prompt-send' with DISPATCH non-nil — the fast
-path that mirrors the magit finish-and-submit muscle memory.
-`knayawp-claude-prompt-send' without DISPATCH is the review path
-\(bound to `C-x #') that focuses Claude and leaves submission to
-the user."
+  "Inject the compose prompt, dispatching per `knayawp-claude-auto-dispatch'.
+When `knayawp-claude-auto-dispatch' is non-nil, call
+`knayawp-claude-prompt-send' with DISPATCH non-nil — the fast path
+that submits the prompt automatically.  When nil, behave identically
+to `knayawp-claude-prompt-send' (the `C-x #' review path)."
   (interactive)
-  (knayawp-claude-prompt-send t))
+  (knayawp-claude-prompt-send knayawp-claude-auto-dispatch))
 
 (defun knayawp-claude-prompt-abort ()
   "Discard the compose buffer without sending, restore the editor window.
@@ -2444,13 +2462,13 @@ magit.  Restores any display change made for the edit (see
       (message "knayawp: Prompt delivered — Claude panel not visible, press RET manually"))))
 
 (defun knayawp--claude-edit-finish-and-dispatch ()
-  "Finish the Claude edit and auto-dispatch the assembled prompt.
-Call `knayawp--claude-edit-finish' with DISPATCH non-nil — the fast
-path that mirrors the magit finish-and-submit muscle memory.
-`knayawp--claude-edit-finish' without DISPATCH is the review path
-\(bound to `C-x #') that focuses Claude and leaves submission to the user."
+  "Finish the Claude edit, dispatching per `knayawp-claude-auto-dispatch'.
+When `knayawp-claude-auto-dispatch' is non-nil, call
+`knayawp--claude-edit-finish' with DISPATCH non-nil — the fast path
+that submits the prompt automatically.  When nil, behave identically
+to `knayawp--claude-edit-finish' (the `C-x #' review path)."
   (interactive)
-  (knayawp--claude-edit-finish t))
+  (knayawp--claude-edit-finish knayawp-claude-auto-dispatch))
 
 (defun knayawp--claude-edit-abort ()
   "Discard the Claude prompt draft and return focus to the Claude panel.
@@ -2542,7 +2560,17 @@ abort handlers unwind; see `knayawp--claude-edit-restore-display'."
         (select-window win))
       (with-current-buffer buf
         (setq-local header-line-format
-                    "Claude edit — C-c C-c send+dispatch, C-x # send, C-c C-k discard")
+                    (if knayawp-claude-auto-dispatch
+                        (substitute-command-keys
+                         "Claude edit — \
+\\[knayawp--claude-edit-finish-and-dispatch] send+dispatch, \
+\\[knayawp--claude-edit-finish] send, \
+\\[knayawp--claude-edit-abort] discard")
+                      (substitute-command-keys
+                       "Claude edit — \
+\\[knayawp--claude-edit-finish-and-dispatch]/\
+\\[knayawp--claude-edit-finish] send, \
+\\[knayawp--claude-edit-abort] discard")))
         (local-set-key (kbd "C-c C-c") #'knayawp--claude-edit-finish-and-dispatch)
         (local-set-key (kbd "C-x #") #'knayawp--claude-edit-finish)
         (local-set-key (kbd "C-c C-k") #'knayawp--claude-edit-abort)))))
