@@ -3787,4 +3787,75 @@ window, then verify the carriage-return was sent."
     ;; Only the text should be sent, not "\r".
     (should-not (member "\r" sends))))
 
+;;;; knayawp-claude-auto-dispatch flag tests
+
+(ert-deftest knayawp-test-prompt-send-and-dispatch-flag-on-sends-return ()
+  "`knayawp-claude-prompt-send-and-dispatch' sends \"\\r\" when flag is non-nil."
+  (let ((sent nil)
+        (knayawp-claude-auto-dispatch t))
+    (cl-letf (((symbol-function 'string-trim) (lambda (s) s))
+              ((symbol-function 'string=) (lambda (a _b) (not (equal a ""))))
+              ((symbol-function 'knayawp--claude-panel-send-string)
+               (lambda (s) (push s sent) 'fake-win))
+              ((symbol-function 'knayawp--claude-prompt-restore-origin) #'ignore)
+              ((symbol-function 'window-live-p) (lambda (_w) nil))
+              ((symbol-function 'sit-for) #'ignore)
+              ((symbol-function 'knayawp--claude-panel-window)
+               (lambda () 'fake-win))
+              ((symbol-function 'kill-buffer) #'ignore)
+              ((symbol-function 'message) #'ignore))
+      (with-temp-buffer
+        (insert "Hello\n")
+        (knayawp-claude-prompt-send-and-dispatch)))
+    (should (member "\r" sent))))
+
+(ert-deftest knayawp-test-prompt-send-and-dispatch-flag-off-no-return ()
+  "`knayawp-claude-prompt-send-and-dispatch' omits \"\\r\" when flag is nil."
+  (let ((sent nil)
+        (knayawp-claude-auto-dispatch nil))
+    (cl-letf (((symbol-function 'string-trim) (lambda (s) s))
+              ((symbol-function 'string=) (lambda (a _b) (not (equal a ""))))
+              ((symbol-function 'knayawp--claude-panel-send-string)
+               (lambda (s) (push s sent) 'fake-win))
+              ((symbol-function 'knayawp--claude-prompt-restore-origin) #'ignore)
+              ((symbol-function 'window-live-p) (lambda (_w) nil))
+              ((symbol-function 'kill-buffer) #'ignore)
+              ((symbol-function 'message) #'ignore))
+      (with-temp-buffer
+        (insert "Hello\n")
+        (knayawp-claude-prompt-send-and-dispatch)))
+    (should-not (member "\r" sent))))
+
+(ert-deftest knayawp-test-edit-finish-and-dispatch-flag-on-sends-return ()
+  "`knayawp--claude-edit-finish-and-dispatch' sends \"\\r\" when flag is non-nil."
+  (let ((sent nil)
+        (knayawp-claude-auto-dispatch t))
+    (cl-letf (((symbol-function 'save-buffer) #'ignore)
+              ((symbol-function 'server-edit) #'ignore)
+              ((symbol-function 'knayawp--claude-edit-restore-display) #'ignore)
+              ((symbol-function 'knayawp--claude-edit-select-window) #'ignore)
+              ((symbol-function 'sit-for) #'ignore)
+              ((symbol-function 'knayawp--claude-panel-window)
+               (lambda () 'fake-win))
+              ((symbol-function 'knayawp--claude-panel-send-string)
+               (lambda (s) (setq sent s))))
+      (knayawp--claude-edit-finish-and-dispatch)
+      (should (equal sent "\r")))))
+
+(ert-deftest knayawp-test-edit-finish-and-dispatch-flag-off-no-return ()
+  "`knayawp--claude-edit-finish-and-dispatch' omits \"\\r\" when flag is nil."
+  (let ((send-called nil)
+        (knayawp-claude-auto-dispatch nil))
+    (cl-letf (((symbol-function 'save-buffer) #'ignore)
+              ((symbol-function 'server-edit) #'ignore)
+              ((symbol-function 'knayawp--claude-edit-restore-display) #'ignore)
+              ((symbol-function 'knayawp--claude-edit-select-window) #'ignore)
+              ((symbol-function 'sit-for) #'ignore)
+              ((symbol-function 'knayawp--claude-panel-window)
+               (lambda () 'fake-win))
+              ((symbol-function 'knayawp--claude-panel-send-string)
+               (lambda (_s) (setq send-called t))))
+      (knayawp--claude-edit-finish-and-dispatch)
+      (should-not send-called))))
+
 ;;; knayawp-test.el ends here
