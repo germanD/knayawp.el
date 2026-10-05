@@ -1565,18 +1565,15 @@ C-c C-c dispatches immediately, C-x # sends for review, C-c C-k aborts."
     (should-error (knayawp-claude-prompt-send) :type 'user-error)))
 
 (ert-deftest knayawp-test-claude-prompt-send-and-dispatch-sends-return ()
-  "`knayawp-claude-prompt-send-and-dispatch' sends \"\\r\" after the prompt.
-Delivery is delegated to `knayawp-claude-prompt-send'; the dispatch
-wrapper then sends a carriage return so Claude submits the prompt."
-  (let ((sends nil))
+  "`knayawp-claude-prompt-send-and-dispatch' calls send with dispatch=t.
+After the refactor, `send-and-dispatch' is a thin wrapper that calls
+`knayawp-claude-prompt-send' with DISPATCH non-nil.  The carriage-return
+send lives inside `knayawp-claude-prompt-send' gated on that arg."
+  (let ((dispatch-arg 'unset))
     (cl-letf (((symbol-function 'knayawp-claude-prompt-send)
-               (lambda () (push 'send sends)))
-              ((symbol-function 'knayawp--claude-panel-send-string)
-               (lambda (s) (push s sends)))
-              ((symbol-function 'message) #'ignore))
+               (lambda (&optional d) (setq dispatch-arg d))))
       (knayawp-claude-prompt-send-and-dispatch)
-      ;; Prompt delivered first, carriage return second.
-      (should (equal (nreverse sends) '(send "\r"))))))
+      (should (eq dispatch-arg t)))))
 
 (ert-deftest knayawp-test-claude-panel-send-string-no-panel ()
   "`knayawp--claude-panel-send-string' errors when no Claude window exists."
@@ -3652,31 +3649,142 @@ This test verifies the API invariant that guards `test/sandbox.el': the
 ;;;; claude-edit-finish-and-dispatch (#144)
 
 (ert-deftest knayawp-test-finish-and-dispatch-calls-finish ()
-  "`knayawp--claude-edit-finish-and-dispatch' calls `knayawp--claude-edit-finish'."
-  (let ((finish-called nil))
+  "`knayawp--claude-edit-finish-and-dispatch' calls `knayawp--claude-edit-finish'.
+After the refactor, the wrapper passes dispatch=t to finish."
+  (let ((finish-arg 'unset))
     (cl-letf (((symbol-function 'knayawp--claude-edit-finish)
-               (lambda () (setq finish-called t)))
-              ((symbol-function 'knayawp--claude-panel-send-string) #'ignore))
+               (lambda (&optional d) (setq finish-arg d))))
       (knayawp--claude-edit-finish-and-dispatch)
-      (should finish-called))))
+      (should (eq finish-arg t)))))
 
 (ert-deftest knayawp-test-finish-and-dispatch-sends-return ()
-  "`knayawp--claude-edit-finish-and-dispatch' sends \"\\r\" to the Claude panel."
+  "`knayawp--claude-edit-finish-and-dispatch' sends \"\\r\" via finish dispatch arg.
+The send happens inside `knayawp--claude-edit-finish' when DISPATCH is
+non-nil.  With the panel window stubbed as present, send-string must
+be called with \"\\r\"."
   (let ((sent-string nil))
-    (cl-letf (((symbol-function 'knayawp--claude-edit-finish) #'ignore)
+    (cl-letf (((symbol-function 'save-buffer) #'ignore)
+              ((symbol-function 'server-edit) #'ignore)
+              ((symbol-function 'knayawp--claude-edit-restore-display) #'ignore)
+              ((symbol-function 'knayawp--claude-edit-select-window) #'ignore)
+              ((symbol-function 'sit-for) #'ignore)
+              ((symbol-function 'knayawp--claude-panel-window)
+               (lambda () 'fake-win))
               ((symbol-function 'knayawp--claude-panel-send-string)
                (lambda (s) (setq sent-string s))))
       (knayawp--claude-edit-finish-and-dispatch)
       (should (equal sent-string "\r")))))
 
 (ert-deftest knayawp-test-finish-and-dispatch-order ()
-  "`knayawp--claude-edit-finish-and-dispatch' calls finish before send-string."
+  "`knayawp--claude-edit-finish-and-dispatch' calls finish before send-string.
+Finish is now the function that calls send-string when DISPATCH is t;
+this test verifies the invocation order within finish itself."
   (let ((call-order nil))
-    (cl-letf (((symbol-function 'knayawp--claude-edit-finish)
-               (lambda () (push 'finish call-order)))
+    (cl-letf (((symbol-function 'save-buffer)
+               (lambda () (push 'save call-order)))
+              ((symbol-function 'server-edit)
+               (lambda () (push 'server-edit call-order)))
+              ((symbol-function 'knayawp--claude-edit-restore-display) #'ignore)
+              ((symbol-function 'knayawp--claude-edit-select-window) #'ignore)
+              ((symbol-function 'sit-for) #'ignore)
+              ((symbol-function 'knayawp--claude-panel-window)
+               (lambda () 'fake-win))
               ((symbol-function 'knayawp--claude-panel-send-string)
                (lambda (_s) (push 'send call-order))))
       (knayawp--claude-edit-finish-and-dispatch)
-      (should (equal (nreverse call-order) '(finish send))))))
+      ;; push builds a reversed list; nreverse gives chronological order.
+      (let ((ordered (nreverse call-order)))
+        (should (memq 'save ordered))
+        (should (memq 'server-edit ordered))
+        (should (memq 'send ordered))
+        (should (< (cl-position 'save ordered)
+                   (cl-position 'send ordered)))
+        (should (< (cl-position 'server-edit ordered)
+                   (cl-position 'send ordered)))))))
+
+(ert-deftest knayawp-test-finish-dispatch-arg-sends-return ()
+  "`knayawp--claude-edit-finish' with dispatch=t sends \"\\r\" to Claude panel."
+  (let ((sent nil))
+    (cl-letf (((symbol-function 'save-buffer) #'ignore)
+              ((symbol-function 'server-edit) #'ignore)
+              ((symbol-function 'knayawp--claude-edit-restore-display) #'ignore)
+              ((symbol-function 'knayawp--claude-edit-select-window) #'ignore)
+              ((symbol-function 'sit-for) #'ignore)
+              ((symbol-function 'knayawp--claude-panel-window)
+               (lambda () 'fake-win))
+              ((symbol-function 'knayawp--claude-panel-send-string)
+               (lambda (s) (setq sent s))))
+      (knayawp--claude-edit-finish t)
+      (should (equal sent "\r")))))
+
+(ert-deftest knayawp-test-finish-no-dispatch-no-send ()
+  "`knayawp--claude-edit-finish' without dispatch does not send \"\\r\"."
+  (let ((send-called nil))
+    (cl-letf (((symbol-function 'save-buffer) #'ignore)
+              ((symbol-function 'server-edit) #'ignore)
+              ((symbol-function 'knayawp--claude-edit-restore-display) #'ignore)
+              ((symbol-function 'knayawp--claude-edit-select-window) #'ignore)
+              ((symbol-function 'sit-for) #'ignore)
+              ((symbol-function 'knayawp--claude-panel-window)
+               (lambda () 'fake-win))
+              ((symbol-function 'knayawp--claude-panel-send-string)
+               (lambda (_s) (setq send-called t))))
+      (knayawp--claude-edit-finish)
+      (should-not send-called))))
+
+(ert-deftest knayawp-test-finish-dispatch-no-panel-messages ()
+  "`knayawp--claude-edit-finish' with dispatch=t messages when panel is absent."
+  (let ((messaged nil))
+    (cl-letf (((symbol-function 'save-buffer) #'ignore)
+              ((symbol-function 'server-edit) #'ignore)
+              ((symbol-function 'knayawp--claude-edit-restore-display) #'ignore)
+              ((symbol-function 'knayawp--claude-edit-select-window) #'ignore)
+              ((symbol-function 'sit-for) #'ignore)
+              ((symbol-function 'knayawp--claude-panel-window) (lambda () nil))
+              ((symbol-function 'message)
+               (lambda (fmt &rest _) (setq messaged fmt)))
+              ((symbol-function 'knayawp--claude-panel-send-string)
+               (lambda (_s) (error "send-string called unexpectedly"))))
+      (knayawp--claude-edit-finish t)
+      (should (stringp messaged))
+      (should (string-match-p "press RET manually" messaged)))))
+
+(ert-deftest knayawp-test-prompt-send-dispatch-arg-sends-return ()
+  "`knayawp-claude-prompt-send' with dispatch=t sends \"\\r\" to Claude panel.
+Stub the whole delivery path so `kill-buffer' never runs on a batch-mode
+window, then verify the carriage-return was sent."
+  (let ((sent nil))
+    (cl-letf (((symbol-function 'string-trim) (lambda (s) s))
+              ((symbol-function 'string=) (lambda (a _b) (not (equal a ""))))
+              ;; Stub the delivery path entirely.
+              ((symbol-function 'knayawp--claude-panel-send-string)
+               (lambda (s) (push s sent) 'fake-win))
+              ((symbol-function 'knayawp--claude-prompt-restore-origin) #'ignore)
+              ((symbol-function 'window-live-p) (lambda (_w) nil))
+              ((symbol-function 'sit-for) #'ignore)
+              ((symbol-function 'knayawp--claude-panel-window)
+               (lambda () 'fake-win))
+              ((symbol-function 'kill-buffer) #'ignore)
+              ((symbol-function 'message) #'ignore))
+      (with-temp-buffer
+        (insert "Hello Claude\n")
+        (knayawp-claude-prompt-send t)))
+    ;; First send is the text, second is "\r" (the dispatch carriage return).
+    (should (member "\r" sent))))
+
+(ert-deftest knayawp-test-prompt-send-no-dispatch-no-send ()
+  "`knayawp-claude-prompt-send' without dispatch does not send \"\\r\"."
+  (let ((sends nil))
+    (cl-letf (((symbol-function 'knayawp--claude-panel-send-string)
+               (lambda (s) (push s sends) 'fake-win))
+              ((symbol-function 'knayawp--claude-prompt-restore-origin) #'ignore)
+              ((symbol-function 'window-live-p) (lambda (_w) nil))
+              ((symbol-function 'kill-buffer) #'ignore)
+              ((symbol-function 'message) #'ignore))
+      (with-temp-buffer
+        (insert "Hello Claude\n")
+        (knayawp-claude-prompt-send)))
+    ;; Only the text should be sent, not "\r".
+    (should-not (member "\r" sends))))
 
 ;;; knayawp-test.el ends here

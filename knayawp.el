@@ -729,8 +729,9 @@ calls."
 (defun knayawp--make-terminal-send-string-eat (window string)
   "Send STRING to the eat process in WINDOW."
   (with-current-buffer (window-buffer window)
-    (when (and (boundp 'eat-terminal) eat-terminal)
-      (eat-term-send-string eat-terminal string))))
+    (if (and (boundp 'eat-terminal) eat-terminal)
+        (eat-term-send-string eat-terminal string)
+      (message "knayawp: eat terminal not ready — press RET manually"))))
 
 (defun knayawp--claude-panel-window ()
   "Return the live side window showing the Claude panel, or nil.
@@ -1028,15 +1029,21 @@ when the compose buffer was displayed."
     (when (and (window-live-p ow) (buffer-live-p pb))
       (set-window-buffer ow pb))))
 
-(defun knayawp-claude-prompt-send ()
+(defun knayawp-claude-prompt-send (&optional dispatch)
   "Inject the compose buffer's prompt into the Claude panel for review.
 Send the trimmed buffer contents to the Claude terminal via the
 dispatch layer, restore the editor window's previous buffer, focus
 the Claude panel so the prompt can be reviewed and dispatched with
-RET, and kill the draft.  This is the review path; see
+RET, and kill the draft.  This is the review path (see
 `knayawp-claude-prompt-send-and-dispatch' for the fast path that
-submits immediately.  Signal `user-error' when the buffer is empty
-or no Claude panel is available."
+submits immediately).
+With DISPATCH non-nil (the fast path), wait briefly for the Claude
+CLI to process the delivered content, then send a carriage return
+to the Claude panel terminal so the prompt is submitted
+automatically.  If the Claude panel is not visible at that point,
+emit a message instead of raising an error.
+Signal `user-error' when the buffer is empty or no Claude panel is
+available."
   (interactive)
   (let ((text (string-trim (buffer-string))))
     (when (string= "" text)
@@ -1049,20 +1056,23 @@ or no Claude panel is available."
       (when (window-live-p win)
         (select-window win))
       (kill-buffer buf)
-      (message "knayawp: Prompt sent to Claude — press RET to dispatch"))))
+      (if dispatch
+          (progn
+            (sit-for 0.1)
+            (if (knayawp--claude-panel-window)
+                (knayawp--claude-panel-send-string "\r")
+              (message "knayawp: Prompt delivered — Claude panel not visible, press RET manually")))
+        (message "knayawp: Prompt sent to Claude — press RET to dispatch")))))
 
 (defun knayawp-claude-prompt-send-and-dispatch ()
   "Inject the compose prompt into the Claude panel and submit it.
-Call `knayawp-claude-prompt-send' to deliver the prompt and focus
-the Claude panel, then send a carriage return to the Claude panel
-terminal so Claude receives the prompt without the user pressing
-Enter manually.  This is the fast path, mirroring the magit
-finish-and-submit muscle memory; `knayawp-claude-prompt-send' is
-the review path that leaves submission to the user."
+Call `knayawp-claude-prompt-send' with DISPATCH non-nil — the fast
+path that mirrors the magit finish-and-submit muscle memory.
+`knayawp-claude-prompt-send' without DISPATCH is the review path
+\(bound to `C-x #') that focuses Claude and leaves submission to
+the user."
   (interactive)
-  (knayawp-claude-prompt-send)
-  (knayawp--claude-panel-send-string "\r")
-  (message "knayawp: Prompt dispatched to Claude"))
+  (knayawp-claude-prompt-send t))
 
 (defun knayawp-claude-prompt-abort ()
   "Discard the compose buffer without sending, restore the editor window.
@@ -2411,31 +2421,36 @@ cases so a subsequent edit starts clean."
         knayawp--claude-edit-displaced-window nil
         knayawp--claude-edit-zoom-winconf nil))
 
-(defun knayawp--claude-edit-finish ()
+(defun knayawp--claude-edit-finish (&optional dispatch)
   "Save the Claude edit buffer, signal done to emacsclient, focus Claude.
+With DISPATCH non-nil (the auto-dispatch fast path), wait briefly for
+the Claude CLI to process the delivered content, then send a carriage return
+to the Claude panel terminal so the prompt is submitted automatically.
+Without DISPATCH (the review path), focus the Claude panel and leave
+submission to the user.
 Saves before calling `server-edit' so Emacs does not prompt to save a
 modified buffer — the same approach used by `with-editor-finish' in
 magit.  Restores any display change made for the edit (see
-`knayawp--claude-edit-restore-display'), then selects the Claude
-panel so the user can press Enter to dispatch the prompt without a
-manual window switch."
+`knayawp--claude-edit-restore-display')."
   (interactive)
   (save-buffer)
   (server-edit)
   (knayawp--claude-edit-restore-display)
-  (knayawp--claude-edit-select-window))
+  (knayawp--claude-edit-select-window)
+  (when dispatch
+    (sit-for 0.1)
+    (if (knayawp--claude-panel-window)
+        (knayawp--claude-panel-send-string "\r")
+      (message "knayawp: Prompt delivered — Claude panel not visible, press RET manually"))))
 
 (defun knayawp--claude-edit-finish-and-dispatch ()
   "Finish the Claude edit and auto-dispatch the assembled prompt.
-Calls `knayawp--claude-edit-finish' (save, signal done, restore
-display, focus Claude panel), then sends a carriage return to the
-Claude panel terminal so Claude receives the prompt without the
-user pressing Enter manually.  Bound to the send+dispatch key in
-the Claude edit buffer — the fast path that mirrors the magit
-finish-and-submit muscle memory."
+Call `knayawp--claude-edit-finish' with DISPATCH non-nil — the fast
+path that mirrors the magit finish-and-submit muscle memory.
+`knayawp--claude-edit-finish' without DISPATCH is the review path
+\(bound to `C-x #') that focuses Claude and leaves submission to the user."
   (interactive)
-  (knayawp--claude-edit-finish)
-  (knayawp--claude-panel-send-string "\r"))
+  (knayawp--claude-edit-finish t))
 
 (defun knayawp--claude-edit-abort ()
   "Discard the Claude prompt draft and return focus to the Claude panel.
