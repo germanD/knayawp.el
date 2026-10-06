@@ -3586,6 +3586,8 @@ With no live origin window recorded (the default), focus falls back to
               ((symbol-function 'server-edit) (lambda () (setq edited t)))
               ((symbol-function 'message)
                (lambda (fmt &rest _) (setq messaged fmt)))
+              ((symbol-function 'knayawp--claude-edit-restore-display)
+               #'ignore)
               ((symbol-function 'knayawp--claude-edit-select-window)
                (lambda () (setq selected t))))
       (knayawp--claude-edit-abort)
@@ -3597,8 +3599,12 @@ With no live origin window recorded (the default), focus falls back to
 (ert-deftest knayawp-test-claude-edit-abort-returns-to-origin-window ()
   "`knayawp--claude-edit-abort' selects the origin window when it is live.
 The edit was triggered from a window other than the Claude panel, so
-focus must return there rather than to the Claude panel fallback."
-  (let ((origin-win (selected-window)) (selected nil) (fallback nil))
+focus must return there rather than to the Claude panel fallback.
+`knayawp--editor-window' is set to the same window so the same-frame
+guard passes."
+  (let* ((origin-win (selected-window))
+         (knayawp--editor-window origin-win)
+         (selected nil) (fallback nil))
     (with-temp-buffer
       (setq-local knayawp--claude-edit-origin-window origin-win)
       (cl-letf (((symbol-function 'server-edit) #'ignore)
@@ -3613,13 +3619,33 @@ focus must return there rather than to the Claude panel fallback."
         (should (eq selected origin-win))
         (should-not fallback)))))
 
-(ert-deftest knayawp-test-claude-edit-abort-falls-back-when-origin-dead ()
-  "`knayawp--claude-edit-abort' focuses the Claude panel when origin is dead.
-A nil or dead origin window must not be selected; focus falls back to
-`knayawp--claude-edit-select-window'."
+(ert-deftest knayawp-test-claude-edit-abort-falls-back-when-origin-nil ()
+  "`knayawp--claude-edit-abort' focuses the Claude panel when origin is nil."
   (let ((selected nil) (fallback nil))
     (with-temp-buffer
       (setq-local knayawp--claude-edit-origin-window nil)
+      (cl-letf (((symbol-function 'server-edit) #'ignore)
+                ((symbol-function 'message) #'ignore)
+                ((symbol-function 'knayawp--claude-edit-restore-display)
+                 #'ignore)
+                ((symbol-function 'select-window)
+                 (lambda (w &rest _) (setq selected w)))
+                ((symbol-function 'knayawp--claude-edit-select-window)
+                 (lambda () (setq fallback t))))
+        (knayawp--claude-edit-abort)
+        (should fallback)
+        (should-not selected)))))
+
+(ert-deftest knayawp-test-claude-edit-abort-falls-back-when-origin-deleted ()
+  "`knayawp--claude-edit-abort' falls back when origin is a deleted window object.
+Confirms `window-live-p' (not `null') is the right guard: a live-then-deleted
+window object must not be selected."
+  (let* ((dead-win (split-window))
+         (_ (delete-window dead-win))
+         (selected nil) (fallback nil))
+    (should-not (window-live-p dead-win))
+    (with-temp-buffer
+      (setq-local knayawp--claude-edit-origin-window dead-win)
       (cl-letf (((symbol-function 'server-edit) #'ignore)
                 ((symbol-function 'message) #'ignore)
                 ((symbol-function 'knayawp--claude-edit-restore-display)

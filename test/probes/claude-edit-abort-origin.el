@@ -109,8 +109,8 @@ SUFFIX distinguishes files across scenarios."
         (sit-for 0.2)
         (knayawp-probe-assert-total-window-count 5 "s2-layout-intact")
         (knayawp-probe-check "s2-focus-on-editor-origin"
-                             t
-                             (eq (selected-window) knayawp--editor-window)
+                             knayawp--editor-window
+                             (selected-window)
                              #'eq)
         (when (buffer-live-p temp-buf) (kill-buffer temp-buf)))
     (error (knayawp-probe-abort "s2 failed: %S" e)))
