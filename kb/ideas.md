@@ -1,6 +1,6 @@
 ---
 title: knayawp.el Forward-Looking Ideas
-last-updated: 2026-07-12
+last-updated: 2026-10-06
 status: incubator
 ---
 
@@ -244,3 +244,143 @@ Park it unless a second instance of the same problem surfaces.
 - [ ] If A or B wins: file an issue against v0.1.5 (or later) once the
       shape is settled. If C wins: file a docs-only issue and an
       `kb/spec.md` clarification on backend trade-offs.
+
+---
+
+## Idea 4 — Project explorer side pane
+
+**Status:** sketch
+
+**Gate:** deferred until spike #169 (treemacs coexistence test) is run.
+**Sequencing:** after v0.2 project workspaces land. Possibly not until v1.0.
+**GitHub:** design trace in issue #168; coexistence spike in issue #169.
+
+### Motivation
+
+Users accustomed to VS Code or IntelliJ expect a project-tree explorer
+(e.g. treemacs, dired-sidebar) in a dedicated, persistent pane alongside
+the editor. knayawp's current layout makes no provision for this. Adding it
+post-v0.2 (once project workspaces are stable) could complete the IDE-like
+experience the package targets.
+
+### The load-bearing constraint
+
+knayawp defines the editor pane **negatively**: any window that lacks a
+`window-side` parameter (`knayawp--select-editor-window`,
+`knayawp--side-windows`). A left-side explorer window would carry
+`window-side`, so it would be skipped as the editor (correct) but **counted
+as a control-pane side window** by `knayawp--side-windows`. That means
+zoom, monocle, and toggle-panels would delete the explorer window as
+collateral during their side-window sweeps.
+
+Any first-class explorer design must introduce a distinction between
+"control-pane windows" (current right-side slots) and "all windows with a
+`window-side` parameter." The invariants any design must honor:
+
+- **P1** (layout immunity) — immunity properties must extend to the left
+  window without breaking the existing right-column immunity.
+- **P4** (project-scoped buffers) — explorer buffers must be scoped to a
+  project; complicated by treemacs managing its own buffer naming.
+- **P7** (passive loading) — installing a left slot at load time is
+  prohibited; setup only happens on `knayawp-layout-setup` / `knayawp-mode`.
+
+### Emacs feasibility notes
+
+`window-sides-slots` is a 4-vector `(left top right bottom)`. knayawp
+currently sets it to `'(nil nil nil 3)`. A value of `'(1 nil 3 nil)` would
+declare one left slot plus the three existing right slots on the same frame,
+which is natively supported by Emacs 29+.
+
+The variable is **frame-global** — ADR-001's ownership trade-off applies
+in both directions. treemacs, by default, also manages its own left side
+window. If both knayawp and treemacs attempt to set `window-sides-slots`,
+whoever runs setup last wins, creating a tug-of-war. knayawp would need to
+own both ends, or treemacs must be reconfigured to defer to knayawp
+(`treemacs-display-in-side-window nil` or a plain-split mode). Whether
+plain-split treemacs coexists cleanly with the current layout is the subject
+of spike #169; a positive result from that spike would make "do nothing
+structural — document that explorers live in the editor pane" the cheapest
+and preferred outcome.
+
+The `window-toggle-side-windows` / `-nw` tree-corruption risk (PLAN.md
+issues #139, #142) applies to the total side-window set and grows with slot
+count. knayawp already avoids the built-in toggle via its own config
+save/restore; that approach would need to extend to left-side windows.
+
+### Alternatives (presented evenly — no winner chosen)
+
+#### A) VS-Code-like two-sided layout
+
+One left slot hosts a single explorer buffer (default treemacs); the
+existing right 3-slot panel is unchanged. `C-c k s` (toggle-panels) and
+`C-c k l` (layout-setup) are extended to address both sides, or a new
+`C-c k e` toggle is added for the explorer pane.
+
+Structural scope is modest: the implementation teaches the side-window
+consumers (zoom/monocle/toggle + `knayawp--select-editor-window` /
+`knayawp--current-panel`) to treat left-side windows as a separate class
+(likely via a distinct window parameter or a registered slot list). The
+existing slot-immunity mechanism reuses its current shape; the
+`knayawp-panels` spec contract is not changed.
+
+Invariants touched: P1 (extend immunity to the left window), P4
+(project-scope the explorer buffer despite treemacs' own naming), P7
+(passive loading preserved — left slot created only during layout setup).
+
+#### B) N configurable side panels
+
+Generalize today's single right panel (three windows) into N configurable
+side panels: e.g. Panel 1 = {magit, vterm, claude}, Panel 2 = {treemacs}.
+New or refined commands rotate between panels, and zoom/monocle flatten the
+structure into a navigable buffer list.
+
+The navigation core (`knayawp-select-panel`, `knayawp-next-panel`,
+`knayawp-prev-panel`, the hardcoded `knayawp--select-panel-1/2/3`,
+`knayawp--current-panel-index`) currently assumes a single flat ordered
+`knayawp-panels` list. N panels across sides would require a nested model
+and rewrites of every navigation helper. The `knayawp-panels` spec contract
+in `spec.md` would change.
+
+**Overlap to reconcile:** the rotation and flatten ideas directly overlap
+committed v0.3 work — rotation (#72), zoom-as-ephemeral-solo-layout (#70),
+named layouts (#69). If B is pursued, its scope must be reconciled against
+the v0.3 cluster to avoid duplicating or conflicting with in-progress work.
+This is a coordination point, not a demerit against B.
+
+#### C) Maximum flexibility — A + B, user-configurable left/right components
+
+Both sides configurable, with a per-user layout-specification mechanism.
+Explicitly deferred: deferred because it requires a layout-specification DSL
+that is only justified once more than one user has articulated the need.
+Recorded here for completeness.
+
+### Open questions (resolve before committing to A or B)
+
+1. Does knayawp **drive** treemacs (call `treemacs-select-window`, project-
+   switch hooks, etc.), or only reserve the slot and let treemacs fill it?
+   This directly affects P4 compliance given treemacs' own buffer naming.
+2. Does treemacs-as-plain-left-split (not a side window) coexist cleanly
+   with the right-side layout? If yes, the cheapest outcome is "do nothing
+   structural — document that explorers live in the editor pane." That
+   outcome is acceptable, and may be preferred.
+3. How does two-sided side-window state interact with v0.2 tab-bar workspace
+   save/restore? (Side-window state is frame-global; tab-bar creates logical
+   workspaces within the same frame.)
+
+### Sequencing
+
+Gate on spike #169. If the spike shows plain-split coexistence works, no
+structural change is needed. If a first-class pane is warranted, choose
+between A and B (and reconcile B against v0.3 before any implementation).
+All implementation is post-v0.2.
+
+### Promote-to-issue checklist
+
+- [ ] Run spike #169: treemacs coexistence test in a live knayawp layout.
+      Record whether plain-split or side-window mode works, and what breaks.
+- [ ] If spike shows coexistence works: file a docs/spec issue and close #168
+      with "do nothing structural."
+- [ ] If a first-class pane is warranted: decide A vs B, reconcile B with
+      v0.3 if needed, then file against the appropriate milestone (post-v0.2).
+- [ ] If B: audit the `knayawp-panels` spec contract in `spec.md` for the
+      nested-model impact before any code is written.

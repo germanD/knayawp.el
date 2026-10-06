@@ -285,6 +285,8 @@ and the final keymap flip as the release gate.
 - [ ] Deprecate `knayawp-next-panel` / `knayawp-prev-panel` via `make-obsolete`; document upcoming flip — #74
 - [ ] Flip `n`/`p` in `knayawp-command-map` to intra-pane window cycling; document migration — #75
 - [ ] feat: panel resize keybindings (S-arrow grow/shrink, l reset) — #119
+- [ ] design: project explorer side pane — alternatives A/B/C (neutral discussion) — #168
+- [ ] spike: test treemacs coexistence with knayawp side windows (gate for #168) — #169
 
 ---
 

@@ -1,6 +1,6 @@
 ---
 title: knayawp.el Knowledge Base
-last-updated: 2026-08-10
+last-updated: 2026-10-06
 status: draft
 ---
 
