@@ -241,8 +241,10 @@ Resolved design decisions:
 - [x] feat: add knayawp-claude-edit-style (route temp file into Claude panel, restore on done) — #133
 - [x] feat: return focus to Claude panel after C-c C-c in prompt editor — #135
 - [x] feat: C-c C-k abort binding and message for Claude prompt editor — #143
-- [ ] feat: shared auto-dispatch option (simulate Enter on finish) for Claude prompt editor and send-to-Claude compose — #144
-- [ ] bug: knayawp--claude-edit-abort should return focus to origin window, not always Claude panel — #164
+- [x] feat: shared auto-dispatch option (simulate Enter on finish) for Claude prompt editor and send-to-Claude compose — #144
+- [x] bug: knayawp--claude-edit-abort should return focus to origin window, not always Claude panel — #164
+- [ ] hardening: recover gracefully when save-buffer fails in knayawp--claude-edit-finish — #167
+- [x] bug: git rebase -i from magit hangs with "Waiting for Emacs..." when knayawp started the server — #154
 - [x] feat: knayawp-send-to-terminal — send editor selection to the terminal panel (C-c k t) — #162
 - [x] ci: pin runs-on to ubuntu-24.04 to prevent silent OS upgrades — #136
 - [x] ci: add sanity preflight that verifies ELPA packages load in -Q mode — #137
