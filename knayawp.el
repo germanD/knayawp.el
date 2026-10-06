@@ -1107,14 +1107,18 @@ to `knayawp-claude-prompt-send' (the `C-x #' review path)."
   (knayawp-claude-prompt-send knayawp-claude-auto-dispatch))
 
 (defun knayawp-claude-prompt-abort ()
-  "Discard the compose buffer without sending, restore the editor window.
-Restore the origin window's previous buffer, focus the Claude
-panel, and kill the draft."
+  "Discard the compose buffer without sending, return focus to origin.
+Restore the origin window's previous buffer, return focus to the
+window the compose buffer was opened from (falling back to the
+Claude panel when that window is no longer live), and kill the draft."
   (interactive)
-  (let ((buf (current-buffer)))
+  (let ((buf (current-buffer))
+        (origin knayawp--claude-prompt-origin-window))
     (knayawp--claude-prompt-restore-origin)
     (setq knayawp--claude-prompt-buffer nil)
-    (knayawp--claude-edit-select-window)
+    (if (window-live-p origin)
+        (select-window origin)
+      (knayawp--claude-edit-select-window))
     (kill-buffer buf)
     (message "knayawp: Prompt discarded")))
 
@@ -2491,15 +2495,21 @@ prompt, leaving the on-disk temp file unchanged.  Restores any display
 change made for the edit (see `knayawp--claude-edit-restore-display')
 before returning focus.  Focus goes back to
 `knayawp--claude-edit-origin-window' — the window the edit was
-triggered from — when it is still live; otherwise it falls back to the
-Claude panel.  Mirrors the magit abort convention."
+triggered from — when it is still live and on the same frame as the
+layout; otherwise it falls back to the Claude panel.
+The same-frame guard prevents `emacsclient --create-frame' from
+causing the abort to raise a foreign frame.
+Mirrors the magit abort convention."
   (interactive)
   (let ((origin knayawp--claude-edit-origin-window))
     (set-buffer-modified-p nil)
     (server-edit)
     (knayawp--claude-edit-restore-display)
     (message "knayawp: Prompt discarded")
-    (if (window-live-p origin)
+    (if (and (window-live-p origin)
+             knayawp--editor-window
+             (eq (window-frame origin)
+                 (window-frame knayawp--editor-window)))
         (select-window origin)
       (knayawp--claude-edit-select-window))))
 
