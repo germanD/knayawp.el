@@ -1,58 +1,41 @@
-;;; server-switch-timing.el --- Probe for server-switch-hook origin timing -*- lexical-binding: t; -*-
+;;; server-switch-timing.el --- Probe for server-visit-hook origin capture -*- lexical-binding: t; -*-
 
 ;;; Commentary:
 
-;; Diagnostic probe for finding 3 from the PR #166 review: does
-;; `knayawp--claude-editor-server-switch' capture the correct origin
-;; window when called from the real `server-switch-hook'?
+;; Two-scenario probe verifying that `knayawp--claude-edit-record-origin'
+;; (on `server-visit-hook') captures the correct origin window even when
+;; `server-switch-buffer' subsequently moves focus elsewhere.  Run via:
+;;   test/run-probe.sh test/probes/server-switch-timing.el
 ;;
 ;; Background
 ;; ----------
 ;; `server-switch-hook' fires AFTER `server-switch-buffer' has already
-;; called `display-buffer' + `set-frame-selected-window', so by hook
-;; time `(selected-window)' reflects the window Emacs chose for the
-;; temp file — not the window the user was in before the edit.
+;; called `display-buffer' + `set-frame-selected-window', so any origin
+;; captured there reflects the window Emacs chose for the temp file —
+;; not the window the user was in before the edit.
 ;;
-;; The knayawp hook captures `(selected-window)' as `origin' before
-;; re-routing the buffer via `knayawp--claude-edit-display-buffer'.
-;; Whether this captures the right window depends on what
-;; `server-switch-buffer' left as the selected window.
+;; The fix (issue #164) moves origin capture to `server-visit-hook',
+;; which fires BEFORE `server-switch-buffer'.  At visit-hook time
+;; `(selected-window)' is still the user's original window.
 ;;
 ;; Two scenarios
 ;; -------------
-;; Scenario 1 — DIRECT call (existing probe baseline):
-;;   Select Claude panel, call the hook directly without going through
-;;   `server-switch-buffer'.  `(selected-window)' = Claude panel.
-;;   Origin should be Claude panel.  Expected: GREEN.
+;; Scenario 1 — DIRECT call (baseline):
+;;   Select Claude panel, call record-origin then the switch hook directly
+;;   without a simulated server-switch-buffer.  Origin = Claude panel.
+;;   Expected: GREEN.
 ;;
-;; Scenario 2 — SIMULATED server-switch-buffer flow:
-;;   Select Claude panel, then simulate `server-switch-buffer' by
-;;   calling `(display-buffer tmp-buf)' (no action constraints, so
-;;   Emacs chooses where) and selecting the resulting window — exactly
-;;   as `server-switch-buffer' does with `set-frame-selected-window'.
-;;   THEN call the hook.  `(selected-window)' is now wherever Emacs
-;;   routed the file (typically the editor pane in a knayawp layout).
-;;   Origin captured = ?
-;;
-;;   If origin = Claude panel → PASS  (finding 3 REFUTED)
-;;   If origin = editor pane  → FAIL  (finding 3 CONFIRMED)
+;; Scenario 2 — SIMULATED server-switch-buffer flow (regression test):
+;;   Select Claude panel, call record-origin (still Claude panel at that
+;;   point), THEN simulate server-switch-buffer via display-buffer +
+;;   set-frame-selected-window (moves focus to editor pane in CI),
+;;   THEN call the switch hook.  Origin should still be the Claude panel
+;;   because it was captured before focus moved.
+;;   Expected: GREEN (was RED before the server-visit-hook fix).
 ;;
 ;; How to run
 ;; ----------
 ;;   bash test/run-probe.sh test/probes/server-switch-timing.el
-;;
-;; Interpreting the result
-;; -----------------------
-;; STATUS: GREEN  — scenario 2 PASS: the hook captures Claude panel as
-;;                  origin even after server-switch-buffer moves focus.
-;;                  Finding 3 is REFUTED; no fix needed.
-;;
-;; STATUS: RED    — scenario 2 FAIL: origin = editor pane, not Claude
-;;                  panel.  Finding 3 is CONFIRMED.  The fix: capture
-;;                  origin earlier (e.g. save it when the Claude CLI
-;;                  opens the session, not at hook time) or use
-;;                  `window-point-insertion-type' / frame history to
-;;                  identify the user's prior window.
 ;;
 ;; Note on window counts: `test/sandbox.el' opens a `*knayawp-sandbox*'
 ;; help window.  Full layout: 3 panels + editor + sandbox helper = 5 windows.
@@ -100,14 +83,16 @@
         ;; Select Claude panel — this is where the user is before C-g.
         (knayawp-probe-select-slot sst--claude-slot)
         (setq tmp-buf (sst--make-temp-buf "s1"))
-        ;; Direct call, no server-switch-buffer: selected-window = Claude panel.
+        ;; Simulate visit-hook (fires before server-switch-buffer).
+        (with-current-buffer tmp-buf
+          (knayawp--claude-edit-record-origin))
+        ;; Direct switch-hook call — no server-switch-buffer in between.
         (with-current-buffer tmp-buf
           (knayawp--claude-editor-server-switch))
         (sit-for 0.2)
-        ;; Abort.
+        ;; Abort: focus should return to Claude panel.
         (sst--abort-stub tmp-buf)
         (sit-for 0.2)
-        ;; After abort: focus should be Claude panel.
         (knayawp-probe-assert-total-window-count 5 "s1-layout-intact")
         (knayawp-probe-assert-selected-window-slot
          sst--claude-slot "s1-origin-is-claude-panel")
@@ -115,11 +100,11 @@
     (error (knayawp-probe-abort "s1 failed: %S" e)))
   (knayawp-probe-teardown-layout))
 
-;;;; Scenario 2: simulated server-switch-buffer flow — the real test
+;;;; Scenario 2: simulated server-switch-buffer flow — regression test for the fix
 
 (defun sst--scenario-2 ()
-  "Scenario 2 — simulated server-switch-buffer: tests hook timing."
-  (knayawp-probe-section "SCENARIO 2 -- simulated server-switch-buffer flow")
+  "Scenario 2 — visit-hook before server-switch-buffer: origin survives focus move."
+  (knayawp-probe-section "SCENARIO 2 -- visit-hook fires before server-switch-buffer")
   (condition-case e
       (let ((default-directory (file-name-as-directory sandbox--test-dir))
             (knayawp-claude-edit-style 'claude-panel)
@@ -128,10 +113,11 @@
         ;; Select Claude panel — user is here before C-g.
         (knayawp-probe-select-slot sst--claude-slot)
         (setq tmp-buf (sst--make-temp-buf "s2"))
-        ;; Simulate server-switch-buffer: display-buffer with no action
-        ;; constraints (Emacs picks a non-dedicated window — editor pane)
-        ;; then select the resulting window, as server-switch-buffer does
-        ;; via set-frame-selected-window.
+        ;; Step 1: visit-hook fires while Claude panel is still selected.
+        (with-current-buffer tmp-buf
+          (knayawp--claude-edit-record-origin))
+        ;; Step 2: simulate server-switch-buffer moving focus away
+        ;; (display-buffer picks a non-dedicated window — editor pane in CI).
         (setq routed-win (display-buffer tmp-buf))
         (when (window-live-p routed-win)
           (set-frame-selected-window (window-frame routed-win) routed-win))
@@ -140,23 +126,21 @@
         (knayawp-probe-log "    routed-win=%S" routed-win)
         (knayawp-probe-log "    claude-panel-win=%S"
                            (knayawp--side-window-for-slot sst--claude-slot))
-        ;; NOW call the hook — just like server-switch-hook would.
+        ;; Step 3: switch-hook fires with wrong selected-window (editor pane).
         (with-current-buffer tmp-buf
           (knayawp--claude-editor-server-switch))
         (sit-for 0.2)
-        ;; Check what origin was recorded.
+        ;; The recorded origin should still be the Claude panel (set in step 1).
         (let ((recorded-origin
-               (buffer-local-value 'knayawp--claude-edit-origin-window
-                                   tmp-buf))
+               (buffer-local-value 'knayawp--claude-edit-origin-window tmp-buf))
               (claude-win (knayawp--side-window-for-slot sst--claude-slot)))
           (knayawp-probe-log "  recorded origin=%S" recorded-origin)
           (knayawp-probe-log "  claude-panel-win=%S" claude-win)
-          ;; The key assertion: did we capture the Claude panel as origin?
           (knayawp-probe-check "s2-origin-is-claude-panel"
                                claude-win
                                recorded-origin
                                #'eq))
-        ;; Abort and verify focus.
+        ;; Abort: focus should return to Claude panel.
         (sst--abort-stub tmp-buf)
         (sit-for 0.2)
         (knayawp-probe-assert-total-window-count 5 "s2-layout-intact")

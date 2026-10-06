@@ -70,6 +70,7 @@
 (defvar git-commit-setup-hook)
 (defvar with-editor-post-finish-hook)
 (defvar with-editor-post-cancel-hook)
+(defvar server-visit-hook)
 (defvar server-switch-hook)
 (defvar magit-log-select-mode-hook)
 (defvar magit-log-select-pick-hook)
@@ -595,17 +596,16 @@ abort handlers.  Nil when no `zoom' edit is in progress.")
 
 (defvar-local knayawp--claude-edit-origin-window nil
   "Window selected when this Claude edit buffer was set up.
-Recorded by `knayawp--claude-editor-server-switch' before it
-routes the edit buffer, so `knayawp--claude-edit-abort' can
-return focus to the window the edit was triggered from rather
-than always selecting the Claude panel.  For an edit launched
-from inside the Claude panel (the quit-key flow) this is the
-Claude panel itself; for an edit triggered from the editor pane
-or another managed panel it is that window.  Nil in buffers that
-are not knayawp Claude
-edits, and may reference a now-dead window (e.g. after a `zoom'
-edit deletes the side windows), so callers must guard with
-`window-live-p'.")
+Recorded by `knayawp--claude-edit-record-origin' on
+`server-visit-hook' — before `server-switch-buffer' moves focus —
+so `knayawp--claude-edit-abort' can return focus to the window
+the edit was triggered from rather than always selecting the
+Claude panel.  For the quit-key flow the origin is the Claude
+panel itself; for an edit triggered from the editor pane or
+another managed panel it is that window.  Nil in buffers that
+are not knayawp Claude edits, and may reference a now-dead
+window (e.g. after a `zoom' edit deletes the side windows), so
+callers must guard with `window-live-p'.")
 
 ;;;; Project detection
 
@@ -2557,6 +2557,26 @@ is restored when the edit finishes."
      (set-window-buffer knayawp--editor-window buf)
      knayawp--editor-window)))
 
+(defun knayawp--claude-edit-record-origin ()
+  "Record the pre-switch selected window as this edit's origin.
+Added to `server-visit-hook' (runs BEFORE `server-switch-buffer'
+changes `selected-window') so the captured window reflects the
+user's position before Emacs routes the emacsclient temp file.
+Sets `knayawp--claude-edit-origin-window' buffer-locally so
+`knayawp--claude-editor-server-switch' and `knayawp--claude-edit-abort'
+find the correct origin.  No-op unless all four conditions hold:
+
+1. `knayawp-claude-editor-flag' is non-nil.
+2. A knayawp layout is active and `knayawp--editor-window' is live.
+3. The current buffer is visiting a file.
+4. No commit-flow session is active."
+  (when (and knayawp-claude-editor-flag
+             knayawp--active-layouts
+             (window-live-p knayawp--editor-window)
+             (buffer-file-name)
+             (not (knayawp--commit-flow-active-p)))
+    (setq-local knayawp--claude-edit-origin-window (selected-window))))
+
 (defun knayawp--claude-editor-server-switch ()
   "Route an emacsclient file per `knayawp-claude-edit-style'.
 Added to `server-switch-hook' with APPEND so it runs after magit's
@@ -2585,12 +2605,10 @@ abort handlers unwind; see `knayawp--claude-edit-restore-display'."
              (buffer-file-name)
              (not (knayawp--commit-flow-active-p)))
     (let* ((buf (current-buffer))
-           (origin (selected-window))
            (win (knayawp--claude-edit-display-buffer buf)))
       (when (window-live-p win)
         (select-window win))
       (with-current-buffer buf
-        (setq-local knayawp--claude-edit-origin-window origin)
         (setq-local header-line-format
                     (if knayawp-claude-auto-dispatch
                         (substitute-command-keys
@@ -2608,18 +2626,24 @@ abort handlers unwind; see `knayawp--claude-edit-restore-display'."
         (local-set-key (kbd "C-c C-k") #'knayawp--claude-edit-abort)))))
 
 (defun knayawp--install-claude-editor-hook ()
-  "Register `knayawp--claude-editor-server-switch' on `server-switch-hook'.
-Idempotent.  Installed with APPEND so it runs after magit's own
-`server-switch-hook' entries."
+  "Register knayawp's Claude-editor handlers on the server hooks.
+Idempotent.  `server-visit-hook' entry is prepended (runs first)
+so it captures the pre-switch selected window before
+`server-switch-buffer' moves focus.  `server-switch-hook' entry
+is appended so it runs after magit's own entries."
   (unless knayawp--claude-editor-hook-installed
+    (add-hook 'server-visit-hook
+              #'knayawp--claude-edit-record-origin)
     (add-hook 'server-switch-hook
               #'knayawp--claude-editor-server-switch t)
     (setq knayawp--claude-editor-hook-installed t)))
 
 (defun knayawp--remove-claude-editor-hook ()
-  "Unregister `knayawp--claude-editor-server-switch'.
+  "Unregister knayawp's Claude-editor server-hook handlers.
 Inverse of `knayawp--install-claude-editor-hook'.  Idempotent."
   (when knayawp--claude-editor-hook-installed
+    (remove-hook 'server-visit-hook
+                 #'knayawp--claude-edit-record-origin)
     (remove-hook 'server-switch-hook
                  #'knayawp--claude-editor-server-switch)
     (setq knayawp--claude-editor-hook-installed nil)))

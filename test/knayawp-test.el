@@ -3266,6 +3266,8 @@ compilation which is unavailable in this batch environment)."
   ;; Note: we stub add-hook/remove-hook because Emacs `add-hook' writes
   ;; to the default (global) hook value, not the let-bound local.
   ;; Counting calls via stubs is the correct testing approach here.
+  ;; install adds two hooks (server-visit-hook + server-switch-hook);
+  ;; remove removes two hooks.
   (let ((knayawp--claude-editor-hook-installed nil)
         (add-calls 0)
         (remove-calls 0))
@@ -3275,22 +3277,25 @@ compilation which is unavailable in this batch environment)."
                (lambda (_hook _fn) (cl-incf remove-calls))))
       (knayawp--install-claude-editor-hook)
       (should knayawp--claude-editor-hook-installed)
-      (should (= 1 add-calls))
+      (should (= 2 add-calls))
       ;; Second call is a no-op — add-hook must not be called again.
       (knayawp--install-claude-editor-hook)
-      (should (= 1 add-calls))
+      (should (= 2 add-calls))
       ;; Cleanup
       (knayawp--remove-claude-editor-hook)
       (should-not knayawp--claude-editor-hook-installed)
-      (should (= 1 remove-calls)))))
+      (should (= 2 remove-calls)))))
 
 (ert-deftest knayawp-test-remove-claude-editor-hook-idempotent ()
   "Removing the hook twice is safe."
   (let ((knayawp--claude-editor-hook-installed nil)
+        (server-visit-hook nil)
         (server-switch-hook nil))
     (knayawp--install-claude-editor-hook)
     (knayawp--remove-claude-editor-hook)
     (should-not knayawp--claude-editor-hook-installed)
+    (should-not (memq #'knayawp--claude-edit-record-origin
+                      server-visit-hook))
     (should-not (memq #'knayawp--claude-editor-server-switch
                       server-switch-hook))
     ;; Second remove must not error.
@@ -3575,6 +3580,48 @@ binary and the socket path."
       (should saved)
       (should edited)
       (should selected))))
+
+;;;; knayawp--claude-edit-record-origin (server-visit-hook handler)
+
+(ert-deftest knayawp-test-claude-edit-record-origin-sets-local ()
+  "`knayawp--claude-edit-record-origin' saves selected-window in the buffer."
+  (let* ((fake-editor-win (selected-window))
+         (knayawp-claude-editor-flag t)
+         (knayawp--active-layouts '(("/fake/" . t)))
+         (knayawp--editor-window fake-editor-win)
+         (knayawp--commit-pre-state nil))
+    (with-temp-buffer
+      (cl-letf (((symbol-function 'window-live-p) (lambda (_w) t))
+                ((symbol-function 'buffer-file-name)
+                 (lambda () "/tmp/knayawp-record-origin-test")))
+        (knayawp--claude-edit-record-origin)
+        (should (eq knayawp--claude-edit-origin-window fake-editor-win))))))
+
+(ert-deftest knayawp-test-claude-edit-record-origin-noop-no-flag ()
+  "`knayawp--claude-edit-record-origin' is a no-op when flag is nil."
+  (let* ((fake-editor-win (selected-window))
+         (knayawp-claude-editor-flag nil)
+         (knayawp--active-layouts '(("/fake/" . t)))
+         (knayawp--editor-window fake-editor-win))
+    (with-temp-buffer
+      (cl-letf (((symbol-function 'window-live-p) (lambda (_w) t))
+                ((symbol-function 'buffer-file-name)
+                 (lambda () "/tmp/knayawp-record-origin-test")))
+        (knayawp--claude-edit-record-origin)
+        (should (null knayawp--claude-edit-origin-window))))))
+
+(ert-deftest knayawp-test-claude-edit-record-origin-noop-no-layout ()
+  "`knayawp--claude-edit-record-origin' is a no-op with no active layout."
+  (let* ((fake-editor-win (selected-window))
+         (knayawp-claude-editor-flag t)
+         (knayawp--active-layouts nil)
+         (knayawp--editor-window fake-editor-win))
+    (with-temp-buffer
+      (cl-letf (((symbol-function 'window-live-p) (lambda (_w) t))
+                ((symbol-function 'buffer-file-name)
+                 (lambda () "/tmp/knayawp-record-origin-test")))
+        (knayawp--claude-edit-record-origin)
+        (should (null knayawp--claude-edit-origin-window))))))
 
 (ert-deftest knayawp-test-claude-edit-abort-discards-and-selects-claude ()
   "`knayawp--claude-edit-abort' discards and falls back to the Claude panel.

@@ -79,6 +79,7 @@ SUFFIX distinguishes files across scenarios."
         (knayawp-probe-select-slot ceao--claude-slot)
         (setq temp-buf (ceao--make-temp-file-buffer "claude"))
         (with-current-buffer temp-buf
+          (knayawp--claude-edit-record-origin)  ; visit hook fires before server-switch-buffer
           (knayawp--claude-editor-server-switch))
         (sit-for 0.2)
         (ceao--abort-in temp-buf)
@@ -103,6 +104,7 @@ SUFFIX distinguishes files across scenarios."
         (select-window knayawp--editor-window)
         (setq temp-buf (ceao--make-temp-file-buffer "editor"))
         (with-current-buffer temp-buf
+          (knayawp--claude-edit-record-origin)  ; visit hook fires before server-switch-buffer
           (knayawp--claude-editor-server-switch))
         (sit-for 0.2)
         (ceao--abort-in temp-buf)
@@ -129,6 +131,7 @@ SUFFIX distinguishes files across scenarios."
         (knayawp-probe-select-slot ceao--vterm-slot)
         (setq temp-buf (ceao--make-temp-file-buffer "vterm"))
         (with-current-buffer temp-buf
+          (knayawp--claude-edit-record-origin)  ; visit hook fires before server-switch-buffer
           (knayawp--claude-editor-server-switch))
         (sit-for 0.2)
         (ceao--abort-in temp-buf)
