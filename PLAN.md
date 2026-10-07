@@ -244,6 +244,9 @@ Resolved design decisions:
 - [x] feat: shared auto-dispatch option (simulate Enter on finish) for Claude prompt editor and send-to-Claude compose — #144
 - [x] bug: knayawp--claude-edit-abort should return focus to origin window, not always Claude panel — #164
 - [ ] hardening: recover gracefully when save-buffer fails in knayawp--claude-edit-finish — #167
+- [ ] kb: document dual server-hook pattern and abort origin-return semantics — #171
+- [ ] kb: document knayawp-claude-auto-dispatch in spec.md — #172
+- [ ] kb: add missing style-independent key bindings to spec.md table (t, C-x) — #174
 - [x] bug: git rebase -i from magit hangs with "Waiting for Emacs..." when knayawp started the server — #154
 - [x] feat: knayawp-send-to-terminal — send editor selection to the terminal panel (C-c k t) — #162
 - [x] ci: pin runs-on to ubuntu-24.04 to prevent silent OS upgrades — #136
