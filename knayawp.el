@@ -2609,6 +2609,12 @@ abort handlers unwind; see `knayawp--claude-edit-restore-display'."
       (when (window-live-p win)
         (select-window win))
       (with-current-buffer buf
+        ;; Bind the edit-dispatch keys before building the header line so
+        ;; `substitute-command-keys' can resolve the \\[...] references to
+        ;; real bindings instead of falling back to "M-x command-name".
+        (local-set-key (kbd "C-c C-c") #'knayawp--claude-edit-finish-and-dispatch)
+        (local-set-key (kbd "C-x #") #'knayawp--claude-edit-finish)
+        (local-set-key (kbd "C-c C-k") #'knayawp--claude-edit-abort)
         (setq-local header-line-format
                     (if knayawp-claude-auto-dispatch
                         (substitute-command-keys
@@ -2620,10 +2626,7 @@ abort handlers unwind; see `knayawp--claude-edit-restore-display'."
                        "Claude edit — \
 \\[knayawp--claude-edit-finish-and-dispatch]/\
 \\[knayawp--claude-edit-finish] send, \
-\\[knayawp--claude-edit-abort] discard")))
-        (local-set-key (kbd "C-c C-c") #'knayawp--claude-edit-finish-and-dispatch)
-        (local-set-key (kbd "C-x #") #'knayawp--claude-edit-finish)
-        (local-set-key (kbd "C-c C-k") #'knayawp--claude-edit-abort)))))
+\\[knayawp--claude-edit-abort] discard")))))))
 
 (defun knayawp--install-claude-editor-hook ()
   "Register knayawp's Claude-editor handlers on the server hooks.
