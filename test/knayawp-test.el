@@ -3725,10 +3725,17 @@ window object must not be selected."
           (with-current-buffer file-buf
             (should (eq #'knayawp--claude-edit-abort
                         (local-key-binding (kbd "C-c C-k"))))
-            (should (string-match-p "discard"
-                                    (or (and (stringp header-line-format)
-                                             header-line-format)
-                                        "")))))
+            (let ((hl (or (and (stringp header-line-format)
+                               header-line-format)
+                          "")))
+              (should (string-match-p "discard" hl))
+              ;; Regression guard for #177: the keys must be bound BEFORE
+              ;; the header line is built so `substitute-command-keys'
+              ;; resolves \\[...] to the real bindings, not "M-x cmd".
+              (should (string-match-p "C-c C-c" hl))
+              (should (string-match-p "C-x #" hl))
+              (should (string-match-p "C-c C-k" hl))
+              (should-not (string-match-p "M-x" hl)))))
       (when (buffer-live-p file-buf) (kill-buffer file-buf)))))
 
 ;;;; with-editor sleeping-editor in non-graphic sessions (#141)
