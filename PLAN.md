@@ -247,6 +247,8 @@ Resolved design decisions:
 - [ ] kb: document dual server-hook pattern and abort origin-return semantics — #171
 - [ ] kb: document knayawp-claude-auto-dispatch in spec.md — #172
 - [ ] kb: add missing style-independent key bindings to spec.md table (t, C-x) — #174
+- [ ] bug: Claude edit header shows M-x command names instead of key bindings — #177
+- [ ] bug: Claude edit from zoomed pane + C-g shows temp file in both windows — #178
 - [x] bug: git rebase -i from magit hangs with "Waiting for Emacs..." when knayawp started the server — #154
 - [x] feat: knayawp-send-to-terminal — send editor selection to the terminal panel (C-c k t) — #162
 - [x] ci: pin runs-on to ubuntu-24.04 to prevent silent OS upgrades — #136
