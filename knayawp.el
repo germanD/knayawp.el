@@ -764,8 +764,14 @@ calls."
   "Return the live side window showing the Claude panel, or nil.
 Looks up the `claude' panel spec in `knayawp-panels' and resolves
 its slot to a side window.  Returns nil when there is no Claude
-panel spec or its window is not currently displayed (for example,
-while a panel is zoomed or monocle is active)."
+panel spec or no side window currently occupies its slot.
+
+Note: when the Claude panel itself is zoomed (via
+`knayawp-zoom-panel'), its side window survives — only the OTHER
+side windows are deleted — so this function still returns that live
+window.  It is nil only when monocle is active, the layout is torn
+down, or a different panel is zoomed (which deletes the Claude side
+window)."
   (let ((spec (assq 'claude knayawp-panels)))
     (and spec
          (knayawp--side-window-for-slot (knayawp--panel-slot spec)))))
@@ -2513,6 +2519,36 @@ Mirrors the magit abort convention."
         (select-window origin)
       (knayawp--claude-edit-select-window))))
 
+(defun knayawp--claude-edit-sweep-stray-windows (buf keep-win)
+  "Undo stray displays of BUF left by `server-switch-buffer'.
+Before our `server-switch-hook' runs, `server-switch-buffer' has
+already shown BUF in some window via `display-buffer'.  When we then
+route BUF to KEEP-WIN (the Claude panel), BUF ends up displayed in
+two windows at once (issue #178).
+
+For every live window OTHER than KEEP-WIN that still shows BUF,
+restore it to the buffer it displayed before.  Prefer
+`quit-restore-window', which honours the `quit-restore' parameter
+`display-buffer' recorded, so the window returns to its prior buffer
+\(or is deleted if `display-buffer' created it).  The window itself is
+never force-deleted here — a regular editor window is left intact,
+only its buffer is reverted."
+  ;; ALL-FRAMES = t: BUF is a transient emacsclient temp file that must
+  ;; never legitimately show on more than one window, so sweep stray
+  ;; copies on every frame (e.g. emacsclient --create-frame), not just
+  ;; the selected one.
+  (dolist (win (get-buffer-window-list buf 'no-minibuf t))
+    (unless (eq win keep-win)
+      (if (window-parameter win 'quit-restore)
+          ;; display-buffer recorded how to undo its own display.
+          (quit-restore-window win 'bury)
+        ;; No quit-restore info: fall back to the previous buffer
+        ;; recorded in the window's buffer history, else bury BUF.
+        (let ((prev (caar (window-prev-buffers win))))
+          (if (and prev (buffer-live-p prev) (not (eq prev buf)))
+              (set-window-buffer win prev)
+            (switch-to-prev-buffer win 'bury)))))))
+
 (defun knayawp--claude-edit-display-buffer (buf)
   "Display BUF for a Claude edit per `knayawp-claude-edit-style'.
 Return the window BUF was placed in, or nil if none could be found.
@@ -2522,7 +2558,15 @@ Return the window BUF was placed in, or nil if none could be found.
 displaced Claude buffer/window into
 `knayawp--claude-edit-displaced-buf' and
 `knayawp--claude-edit-displaced-window' for later restore; it falls
-back to the editor pane when no Claude panel window is live.
+back to the editor pane when no Claude panel window is live.  When the
+Claude panel is the currently ZOOMED panel, BUF is shown in the editor
+pane instead — displacing the lone zoomed terminal would leave it with
+nowhere to restore to on abort — and the Claude terminal is left
+untouched.  The caller `knayawp--claude-editor-server-switch' sweeps
+away any stray copy of BUF that `server-switch-buffer' displayed in
+another window before our hook ran, so BUF ends up in exactly one
+window regardless of style (see
+`knayawp--claude-edit-sweep-stray-windows' and issue #178).
 `zoom' shows BUF in the editor pane, saves the current window
 configuration into `knayawp--claude-edit-zoom-winconf', deletes the
 knayawp side windows (which carry `no-delete-other-windows' and so
@@ -2531,18 +2575,29 @@ so the editor pane alone fills the frame.  The saved configuration
 is restored when the edit finishes."
   (pcase knayawp-claude-edit-style
     ('claude-panel
-     (let ((claude-win (knayawp--claude-panel-window)))
-       (if (window-live-p claude-win)
-           (progn
-             (setq knayawp--claude-edit-displaced-buf
-                   (window-buffer claude-win)
-                   knayawp--claude-edit-displaced-window claude-win)
-             (set-window-buffer claude-win buf)
-             claude-win)
-         ;; No Claude panel window (zoomed/monocle/hidden) — fall back
-         ;; to the editor pane so the edit is never lost.
-         (set-window-buffer knayawp--editor-window buf)
-         knayawp--editor-window)))
+     (let* ((claude-win (knayawp--claude-panel-window))
+            ;; When the Claude panel is itself zoomed, its side window is
+            ;; the only panel window on the frame.  Displacing the
+            ;; terminal into it would leave the prompt double-displayed
+            ;; (the stray regular copy) and, once swept, leave the
+            ;; aborted draft with no window at all.  Route to the editor
+            ;; pane instead and leave the zoomed terminal in place.
+            (claude-zoomed (eq knayawp--zoomed-panel 'claude))
+            (target (if (and (window-live-p claude-win)
+                             (not claude-zoomed))
+                        (progn
+                          (setq knayawp--claude-edit-displaced-buf
+                                (window-buffer claude-win)
+                                knayawp--claude-edit-displaced-window
+                                claude-win)
+                          (set-window-buffer claude-win buf)
+                          claude-win)
+                      ;; No usable Claude panel window (zoomed Claude,
+                      ;; monocle, hidden, or another panel zoomed) — fall
+                      ;; back to the editor pane so the edit is never lost.
+                      (set-window-buffer knayawp--editor-window buf)
+                      knayawp--editor-window)))
+       target))
     ('zoom
      (setq knayawp--claude-edit-zoom-winconf
            (current-window-configuration))
@@ -2607,6 +2662,12 @@ abort handlers unwind; see `knayawp--claude-edit-restore-display'."
     (let* ((buf (current-buffer))
            (win (knayawp--claude-edit-display-buffer buf)))
       (when (window-live-p win)
+        ;; `server-switch-buffer' may already have displayed BUF in a
+        ;; regular window before this hook ran; sweep that stray copy so
+        ;; BUF ends up shown in WIN alone, whatever the edit style.  The
+        ;; `zoom' style already ran `delete-other-windows', so this is a
+        ;; harmless no-op there.
+        (knayawp--claude-edit-sweep-stray-windows buf win)
         (select-window win))
       (with-current-buffer buf
         ;; Bind the edit-dispatch keys before building the header line so
