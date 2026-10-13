@@ -27,8 +27,13 @@
 ;;
 ;; Scenario 1 — default `claude-panel' style, zoomed Claude pane.
 ;; Scenario 2 — `zoom' style, zoomed Claude pane.
+;; Scenario 3 — `editor-pane' style, UNZOOMED full layout.  Guards the
+;;   caller-level sweep (hoisted out of the `claude-panel' branch so it
+;;   runs for every edit style): a stray `server-switch-buffer' copy in a
+;;   non-editor window must be swept even when BUF is routed to the editor
+;;   pane.
 ;;
-;; Both scenarios tag the expected (correct) value as 1 window, so a RED
+;; All scenarios tag the expected (correct) value as 1 window, so a RED
 ;; status with actual=2 is the signature of the reproduced bug.
 ;;
 ;; Note on window counts: `test/sandbox.el' opens a `*knayawp-sandbox*'
@@ -80,27 +85,40 @@ SUFFIX distinguishes files across scenarios.  Mimics a Claude
     (with-current-buffer buf
       (knayawp--claude-edit-abort))))
 
-(defun cezd--run-scenario (label style suffix)
-  "Drive the zoomed-pane edit flow under STYLE, assert single-window.
-LABEL names the scenario for the report; SUFFIX names the temp file."
+(defun cezd--run-scenario (label style suffix &optional zoom-p)
+  "Drive the Claude edit flow under STYLE, assert single-window.
+LABEL names the scenario for the report; SUFFIX names the temp file.
+When ZOOM-P is non-nil, select and zoom the Claude panel first;
+otherwise exercise the full unzoomed layout."
   (knayawp-probe-section label)
   (condition-case e
       (let ((default-directory (file-name-as-directory sandbox--test-dir))
             (knayawp-claude-edit-style style)
             (temp-buf nil))
         (knayawp-probe-setup-layout)
-        ;; 1. Select and zoom the Claude panel.
-        (knayawp-probe-select-slot cezd--claude-slot)
-        (knayawp-zoom-panel)
-        (sit-for 0.2)
-        (knayawp-probe-assert-zoomed 'claude (format "%s-zoomed" suffix))
-        ;; 2. server-visit-hook captures origin (Claude pane still selected).
+        ;; 1. Optionally select and zoom the Claude panel.
+        (when zoom-p
+          (knayawp-probe-select-slot cezd--claude-slot)
+          (knayawp-zoom-panel)
+          (sit-for 0.2)
+          (knayawp-probe-assert-zoomed 'claude (format "%s-zoomed" suffix)))
+        ;; 2. server-visit-hook captures origin.
         (setq temp-buf (cezd--make-temp-file-buffer suffix))
         (with-current-buffer temp-buf
           (knayawp--claude-edit-record-origin))
         ;; 3. Simulate server-switch-buffer's own display + focus move,
         ;;    exactly as Emacs does before our server-switch-hook runs.
-        (let ((routed (display-buffer temp-buf)))
+        ;;    In the unzoomed layout, force the stray copy into a
+        ;;    NON-editor side window so the editor-pane sweep is exercised
+        ;;    (the stray window differs from the routing target).
+        (let ((routed
+               (if zoom-p
+                   (display-buffer temp-buf)
+                 (let ((stray-win (knayawp--claude-panel-window)))
+                   (if (window-live-p stray-win)
+                       (progn (set-window-buffer stray-win temp-buf)
+                              stray-win)
+                     (display-buffer temp-buf))))))
           (when (window-live-p routed)
             (set-frame-selected-window (window-frame routed) routed)))
         (cezd--log-summary (format "%s-after-server-switch-buffer" suffix))
@@ -139,10 +157,13 @@ LABEL names the scenario for the report; SUFFIX names the temp file."
       (knayawp-probe-log "  probe start  default-directory=%S" default-directory)
       (cezd--run-scenario
        "SCENARIO 1 -- claude-panel style, zoomed Claude pane"
-       'claude-panel "s1")
+       'claude-panel "s1" t)
       (cezd--run-scenario
        "SCENARIO 2 -- zoom style, zoomed Claude pane"
-       'zoom "s2"))
+       'zoom "s2" t)
+      (cezd--run-scenario
+       "SCENARIO 3 -- editor-pane style, unzoomed layout"
+       'editor-pane "s3"))
   (error (knayawp-probe-abort "top-level error: %S" e)))
 
 (knayawp-probe-finish)
