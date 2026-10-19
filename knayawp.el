@@ -2632,6 +2632,32 @@ find the correct origin.  No-op unless all four conditions hold:
              (not (knayawp--commit-flow-active-p)))
     (setq-local knayawp--claude-edit-origin-window (selected-window))))
 
+(defvar knayawp-claude-edit-mode-map
+  (let ((map (make-sparse-keymap)))
+    (define-key map (kbd "C-c C-c") #'knayawp--claude-edit-finish-and-dispatch)
+    (define-key map (kbd "C-x #") #'knayawp--claude-edit-finish)
+    (define-key map (kbd "C-c C-k") #'knayawp--claude-edit-abort)
+    map)
+  "Keymap for `knayawp-claude-edit-mode'.")
+
+(define-minor-mode knayawp-claude-edit-mode
+  "Minor mode for a Claude edit-prompt temp buffer.
+
+Enabled buffer-locally by `knayawp--claude-editor-server-switch'
+on the emacsclient temp file Claude opens for prompt editing.
+Provides the finish/dispatch/abort keys in its own keymap so the
+bindings never leak into the shared major-mode map (see #180).
+
+\\<knayawp-claude-edit-mode-map>\
+Send and dispatch with \\[knayawp--claude-edit-finish-and-dispatch].
+Send for review (the review path) with \\[knayawp--claude-edit-finish].
+Discard the draft with \\[knayawp--claude-edit-abort].
+
+\\{knayawp-claude-edit-mode-map}"
+  :lighter " ClaudeEdit"
+  :keymap knayawp-claude-edit-mode-map
+  :group 'knayawp)
+
 (defun knayawp--claude-editor-server-switch ()
   "Route an emacsclient file per `knayawp-claude-edit-style'.
 Added to `server-switch-hook' with APPEND so it runs after magit's
@@ -2670,12 +2696,12 @@ abort handlers unwind; see `knayawp--claude-edit-restore-display'."
         (knayawp--claude-edit-sweep-stray-windows buf win)
         (select-window win))
       (with-current-buffer buf
-        ;; Bind the edit-dispatch keys before building the header line so
-        ;; `substitute-command-keys' can resolve the \\[...] references to
-        ;; real bindings instead of falling back to "M-x command-name".
-        (local-set-key (kbd "C-c C-c") #'knayawp--claude-edit-finish-and-dispatch)
-        (local-set-key (kbd "C-x #") #'knayawp--claude-edit-finish)
-        (local-set-key (kbd "C-c C-k") #'knayawp--claude-edit-abort)
+        ;; Enable the edit minor mode so the finish/dispatch/abort keys
+        ;; live in its own keymap rather than the shared major-mode map
+        ;; (see #180).  Enabling it before building the header line also
+        ;; lets `substitute-command-keys' resolve the \\[...] references
+        ;; to real bindings instead of falling back to "M-x command-name".
+        (knayawp-claude-edit-mode 1)
         (setq-local header-line-format
                     (if knayawp-claude-auto-dispatch
                         (substitute-command-keys

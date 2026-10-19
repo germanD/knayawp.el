@@ -3723,19 +3723,66 @@ window object must not be selected."
                   ((symbol-function 'select-window) #'ignore))
           (knayawp--claude-editor-server-switch)
           (with-current-buffer file-buf
+            ;; The edit minor mode must be active, and its map must bind
+            ;; the abort key.  `key-binding' consults minor-mode maps, so
+            ;; it resolves the binding although it is not in the local map.
+            (should knayawp-claude-edit-mode)
             (should (eq #'knayawp--claude-edit-abort
-                        (local-key-binding (kbd "C-c C-k"))))
+                        (key-binding (kbd "C-c C-k"))))
             (let ((hl (or (and (stringp header-line-format)
                                header-line-format)
                           "")))
               (should (string-match-p "discard" hl))
-              ;; Regression guard for #177: the keys must be bound BEFORE
+              ;; Regression guard for #177: the keys must resolve BEFORE
               ;; the header line is built so `substitute-command-keys'
               ;; resolves \\[...] to the real bindings, not "M-x cmd".
               (should (string-match-p "C-c C-c" hl))
               (should (string-match-p "C-x #" hl))
               (should (string-match-p "C-c C-k" hl))
               (should-not (string-match-p "M-x" hl)))))
+      (when (buffer-live-p file-buf) (kill-buffer file-buf)))))
+
+(define-derived-mode knayawp-test--shared-mode prog-mode "KnayShared"
+  "Throwaway derived major mode for the #180 shared-map leak test.")
+
+(ert-deftest knayawp-test-claude-editor-server-switch-no-shared-map-leak ()
+  "`knayawp--claude-editor-server-switch' does not mutate the shared map.
+
+Regression test for #180: the finish/dispatch/abort keys live in the
+`knayawp-claude-edit-mode' map, never the major mode's shared keymap.
+Driving the server-switch in a buffer whose major mode is a real derived
+mode must leave a FRESH buffer in that same major mode with no binding
+for `C-c C-c'.  This fails against the old `local-set-key' implementation
+\(which mutated `(current-local-map)' — the shared mode map) and passes
+with the minor mode."
+  (let* ((file-buf (generate-new-buffer " *knayawp-test-leak*"))
+         (fake-editor-win (selected-window))
+         (knayawp-claude-editor-flag t)
+         (knayawp-claude-edit-style 'editor-pane)
+         (knayawp--active-layouts '(("/fake/" . t)))
+         (knayawp--editor-window fake-editor-win)
+         (knayawp--commit-pre-state nil))
+    (unwind-protect
+        (progn
+          (with-current-buffer file-buf (knayawp-test--shared-mode))
+          (cl-letf (((symbol-function 'window-live-p) (lambda (_w) t))
+                    ((symbol-function 'buffer-file-name)
+                     (lambda () "/tmp/claude-prompt-54321"))
+                    ((symbol-function 'current-buffer) (lambda () file-buf))
+                    ((symbol-function 'set-window-buffer) #'ignore)
+                    ((symbol-function 'select-window) #'ignore))
+            (knayawp--claude-editor-server-switch))
+          ;; A fresh buffer in the same derived major mode must NOT have
+          ;; inherited the edit binding via the shared mode map.
+          (let ((fresh (generate-new-buffer " *knayawp-test-leak-fresh*")))
+            (unwind-protect
+                (with-current-buffer fresh
+                  (knayawp-test--shared-mode)
+                  (should-not knayawp-claude-edit-mode)
+                  (should-not
+                   (eq #'knayawp--claude-edit-finish-and-dispatch
+                       (lookup-key (current-local-map) (kbd "C-c C-c")))))
+              (when (buffer-live-p fresh) (kill-buffer fresh)))))
       (when (buffer-live-p file-buf) (kill-buffer file-buf)))))
 
 ;;;; with-editor sleeping-editor in non-graphic sessions (#141)
