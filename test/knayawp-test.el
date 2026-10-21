@@ -3493,6 +3493,155 @@ binary and the socket path."
           (should (null captured-env-vars)))
       (when (buffer-live-p buf) (kill-buffer buf)))))
 
+(ert-deftest knayawp-test-get-or-create-claude-no-env-when-no-emacsclient ()
+  "No EDITOR injection when `executable-find' cannot locate emacsclient.
+The server socket is available but emacsclient is absent from PATH,
+so `knayawp--get-or-create-claude-buffer' must pass no ENV-VARS and
+leave the buffer-local flag nil."
+  (let ((knayawp-claude-editor-flag t)
+        (captured-env-vars 'unset)
+        (buf (generate-new-buffer " *knayawp-test-claude-no-ec*")))
+    (unwind-protect
+        (cl-letf (((symbol-function 'get-buffer) (lambda (_n) nil))
+                  ((symbol-function 'knayawp--ensure-editor-server)
+                   (lambda () "/tmp/emacs-test/knayawp"))
+                  ((symbol-function 'executable-find)
+                   (lambda (_cmd) nil))
+                  ((symbol-function 'knayawp--make-terminal)
+                   (lambda (_name _dir _cmd env-vars)
+                     (setq captured-env-vars env-vars)
+                     buf)))
+          (knayawp--get-or-create-claude-buffer "/fake/" "fake")
+          (should (null captured-env-vars))
+          (should-not (buffer-local-value
+                       'knayawp--claude-editor-env-set buf)))
+      (when (buffer-live-p buf) (kill-buffer buf)))))
+
+;;;; Claude editor env-set buffer-local flag (#130, option 4)
+
+;; These tests target the historical bug class where EDITOR injection
+;; was silently skipped for reused Claude buffers.  The buffer-local
+;; `knayawp--claude-editor-env-set' flag is the observable witness:
+;; non-nil only when injection actually ran at creation time.
+
+(ert-deftest knayawp-test-get-or-create-claude-sets-env-flag-on-new ()
+  "A freshly injected Claude buffer has `knayawp--claude-editor-env-set' set.
+When the flag is on, the server returns a socket, and emacsclient is
+found, the newly created buffer must carry a non-nil buffer-local
+`knayawp--claude-editor-env-set'."
+  (let ((knayawp-claude-editor-flag t)
+        (knayawp-claude-command "claude")
+        (buf (generate-new-buffer " *knayawp-test-claude-flag-new*")))
+    (unwind-protect
+        (cl-letf (((symbol-function 'get-buffer) (lambda (_n) nil))
+                  ((symbol-function 'knayawp--ensure-editor-server)
+                   (lambda () "/tmp/emacs-test/knayawp"))
+                  ((symbol-function 'executable-find)
+                   (lambda (_cmd) "/usr/bin/emacsclient"))
+                  ((symbol-function 'knayawp--claude-panel-mode) #'ignore)
+                  ((symbol-function 'knayawp--make-terminal)
+                   (lambda (_name _dir _cmd _env-vars) buf)))
+          (knayawp--get-or-create-claude-buffer "/fake/" "fake")
+          (should (buffer-local-value
+                   'knayawp--claude-editor-env-set buf)))
+      (when (buffer-live-p buf) (kill-buffer buf)))))
+
+(ert-deftest knayawp-test-get-or-create-claude-env-flag-nil-when-no-inject ()
+  "A new Claude buffer with no injection keeps `knayawp--claude-editor-env-set' nil.
+The flag is on but no server socket is available, so no ENV-VARS are
+passed and the buffer-local flag must stay nil."
+  (let ((knayawp-claude-editor-flag t)
+        (knayawp-claude-command "claude")
+        (buf (generate-new-buffer " *knayawp-test-claude-flag-noinj*")))
+    (unwind-protect
+        (cl-letf (((symbol-function 'get-buffer) (lambda (_n) nil))
+                  ((symbol-function 'knayawp--ensure-editor-server)
+                   (lambda () nil))
+                  ((symbol-function 'knayawp--claude-panel-mode) #'ignore)
+                  ((symbol-function 'knayawp--make-terminal)
+                   (lambda (_name _dir _cmd _env-vars) buf)))
+          (knayawp--get-or-create-claude-buffer "/fake/" "fake")
+          (should-not (buffer-local-value
+                       'knayawp--claude-editor-env-set buf)))
+      (when (buffer-live-p buf) (kill-buffer buf)))))
+
+(ert-deftest knayawp-test-get-or-create-claude-reuse-skips-injection ()
+  "Reusing a pre-existing Claude buffer never re-injects EDITOR.
+This is the #130 skip-on-reuse regression guard: when a buffer with
+the Claude panel name already exists, `knayawp--get-or-create-claude-buffer'
+must return it without calling `knayawp--make-terminal' (so no env
+injection happens) and without flipping the buffer-local
+`knayawp--claude-editor-env-set' flag that the original buffer
+predates."
+  (let ((knayawp-claude-editor-flag t)
+        (buf-name (knayawp--buffer-name 'claude "reuseproj"))
+        (made-terminal nil)
+        (buf nil))
+    (unwind-protect
+        (progn
+          (setq buf (get-buffer-create buf-name))
+          ;; The reused buffer predates any injection: flag is nil.
+          (with-current-buffer buf
+            (setq-local knayawp--claude-editor-env-set nil))
+          (cl-letf (((symbol-function 'knayawp--claude-panel-mode) #'ignore)
+                    ((symbol-function 'knayawp--ensure-editor-server)
+                     (lambda () (error "Server must not be probed on reuse")))
+                    ((symbol-function 'knayawp--make-terminal)
+                     (lambda (&rest _)
+                       (setq made-terminal t)
+                       (error "make-terminal must not run on reuse"))))
+            (let ((result (knayawp--get-or-create-claude-buffer
+                           "/tmp/reuseproj" "reuseproj")))
+              (should (eq result buf))
+              (should-not made-terminal)
+              (should-not (buffer-local-value
+                           'knayawp--claude-editor-env-set buf)))))
+      (when (buffer-live-p buf) (kill-buffer buf)))))
+
+(ert-deftest knayawp-test-get-or-create-claude-reuse-warns-when-env-unset ()
+  "Reusing a Claude buffer that lacks EDITOR emits the restart warning.
+When the reused buffer's `knayawp--claude-editor-env-set' is nil and
+the editor flag is on, the function must surface a message telling the
+user to restart the panel for editor integration."
+  (let ((knayawp-claude-editor-flag t)
+        (buf-name (knayawp--buffer-name 'claude "warnproj"))
+        (messaged nil)
+        (buf nil))
+    (unwind-protect
+        (progn
+          (setq buf (get-buffer-create buf-name))
+          (with-current-buffer buf
+            (setq-local knayawp--claude-editor-env-set nil))
+          (cl-letf (((symbol-function 'knayawp--claude-panel-mode) #'ignore)
+                    ((symbol-function 'message)
+                     (lambda (fmt &rest args)
+                       (setq messaged (apply #'format fmt args)))))
+            (knayawp--get-or-create-claude-buffer "/tmp/warnproj" "warnproj")
+            (should messaged)
+            (should (string-match-p "EDITOR not set" messaged))))
+      (when (buffer-live-p buf) (kill-buffer buf)))))
+
+(ert-deftest knayawp-test-get-or-create-claude-reuse-no-warn-when-env-set ()
+  "Reusing a Claude buffer that already has EDITOR emits no warning.
+When the reused buffer's `knayawp--claude-editor-env-set' is non-nil,
+the restart warning must not fire."
+  (let ((knayawp-claude-editor-flag t)
+        (buf-name (knayawp--buffer-name 'claude "okproj"))
+        (messaged nil)
+        (buf nil))
+    (unwind-protect
+        (progn
+          (setq buf (get-buffer-create buf-name))
+          (with-current-buffer buf
+            (setq-local knayawp--claude-editor-env-set t))
+          (cl-letf (((symbol-function 'knayawp--claude-panel-mode) #'ignore)
+                    ((symbol-function 'message)
+                     (lambda (fmt &rest args)
+                       (setq messaged (apply #'format fmt args)))))
+            (knayawp--get-or-create-claude-buffer "/tmp/okproj" "okproj")
+            (should-not messaged)))
+      (when (buffer-live-p buf) (kill-buffer buf)))))
+
 (ert-deftest knayawp-test-ensure-editor-server-reuses-live-server ()
   "`knayawp--ensure-editor-server' returns existing socket when server is live."
   (let ((server-name "myserver")
