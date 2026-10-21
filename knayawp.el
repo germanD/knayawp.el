@@ -2473,17 +2473,29 @@ submission to the user.
 Saves before calling `server-edit' so Emacs does not prompt to save a
 modified buffer — the same approach used by `with-editor-finish' in
 magit.  Restores any display change made for the edit (see
-`knayawp--claude-edit-restore-display')."
+`knayawp--claude-edit-restore-display').
+If `save-buffer' signals (read-only filesystem, disk full, locked
+file), release emacsclient anyway so its process never blocks: run
+`server-edit', restore the display, and refocus Claude, but SKIP the
+auto-dispatch carriage return — the on-disk prompt was not updated, so
+auto-submitting would send a stale or empty prompt.  Message the user
+that the save failed and the prompt was not submitted."
   (interactive)
-  (save-buffer)
-  (server-edit)
-  (knayawp--claude-edit-restore-display)
-  (knayawp--claude-edit-select-window)
-  (when dispatch
-    (sit-for 0.1)
-    (if (knayawp--claude-panel-window)
-        (knayawp--claude-panel-send-string "\r")
-      (message "knayawp: Prompt delivered — Claude panel not visible, press RET manually"))))
+  (let ((save-failed nil))
+    (condition-case err
+        (save-buffer)
+      (error
+       (setq save-failed t)
+       (message "knayawp: Save failed (%s) — prompt NOT submitted"
+                (error-message-string err))))
+    (server-edit)
+    (knayawp--claude-edit-restore-display)
+    (knayawp--claude-edit-select-window)
+    (when (and dispatch (not save-failed))
+      (sit-for 0.1)
+      (if (knayawp--claude-panel-window)
+          (knayawp--claude-panel-send-string "\r")
+        (message "knayawp: Prompt delivered — Claude panel not visible, press RET manually")))))
 
 (defun knayawp--claude-edit-finish-and-dispatch ()
   "Finish the Claude edit, dispatching per `knayawp-claude-auto-dispatch'.

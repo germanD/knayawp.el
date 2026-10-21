@@ -3916,6 +3916,66 @@ this test verifies the invocation order within finish itself."
       (should (stringp messaged))
       (should (string-match-p "press RET manually" messaged)))))
 
+(ert-deftest knayawp-test-finish-save-failure-still-releases-emacsclient ()
+  "`knayawp--claude-edit-finish' runs `server-edit' when `save-buffer' fails.
+A blocked emacsclient process must always be released even if the save
+signals (read-only FS, disk full, locked file)."
+  (let ((edited nil) (restored nil) (selected nil))
+    (cl-letf (((symbol-function 'save-buffer)
+               (lambda (&rest _) (error "boom")))
+              ((symbol-function 'server-edit) (lambda () (setq edited t)))
+              ((symbol-function 'knayawp--claude-edit-restore-display)
+               (lambda () (setq restored t)))
+              ((symbol-function 'knayawp--claude-edit-select-window)
+               (lambda () (setq selected t)))
+              ((symbol-function 'message) #'ignore))
+      (knayawp--claude-edit-finish)
+      (should edited)
+      (should restored)
+      (should selected))))
+
+(ert-deftest knayawp-test-finish-save-failure-skips-dispatch ()
+  "`knayawp--claude-edit-finish' skips the RET send when `save-buffer' fails.
+On save failure the on-disk prompt is stale, so auto-dispatch must not
+submit it; `server-edit' still runs and the user is messaged."
+  (let ((edited nil) (send-called nil) (messaged nil))
+    (cl-letf (((symbol-function 'save-buffer)
+               (lambda (&rest _) (error "boom")))
+              ((symbol-function 'server-edit) (lambda () (setq edited t)))
+              ((symbol-function 'knayawp--claude-edit-restore-display) #'ignore)
+              ((symbol-function 'knayawp--claude-edit-select-window) #'ignore)
+              ((symbol-function 'sit-for) #'ignore)
+              ((symbol-function 'knayawp--claude-panel-window)
+               (lambda () 'fake-win))
+              ((symbol-function 'message)
+               (lambda (fmt &rest _) (setq messaged fmt)))
+              ((symbol-function 'knayawp--claude-panel-send-string)
+               (lambda (_s) (setq send-called t))))
+      (knayawp--claude-edit-finish t)
+      (should edited)
+      (should-not send-called)
+      (should (stringp messaged))
+      (should (string-match-p "Save failed" messaged)))))
+
+(ert-deftest knayawp-test-finish-save-ok-dispatch-sends-return ()
+  "`knayawp--claude-edit-finish' sends \"\\r\" on the success+dispatch path.
+Confirms the unchanged happy path: save ok, `server-edit' runs, and the
+carriage return is sent when the Claude panel is visible."
+  (let ((saved nil) (edited nil) (sent nil))
+    (cl-letf (((symbol-function 'save-buffer) (lambda (&rest _) (setq saved t)))
+              ((symbol-function 'server-edit) (lambda () (setq edited t)))
+              ((symbol-function 'knayawp--claude-edit-restore-display) #'ignore)
+              ((symbol-function 'knayawp--claude-edit-select-window) #'ignore)
+              ((symbol-function 'sit-for) #'ignore)
+              ((symbol-function 'knayawp--claude-panel-window)
+               (lambda () 'fake-win))
+              ((symbol-function 'knayawp--claude-panel-send-string)
+               (lambda (s) (setq sent s))))
+      (knayawp--claude-edit-finish t)
+      (should saved)
+      (should edited)
+      (should (equal sent "\r")))))
+
 (ert-deftest knayawp-test-prompt-send-dispatch-arg-sends-return ()
   "`knayawp-claude-prompt-send' with dispatch=t sends \"\\r\" to Claude panel.
 Stub the whole delivery path so `kill-buffer' never runs on a batch-mode
