@@ -202,6 +202,13 @@ Feature-branch worktrees live under `.claude/worktrees/pr<N>/` (path is `.gitign
 - If a PR addresses work not tracked by a labeled issue (e.g., a chore or hotfix), apply the most specific area label that fits (`scaffolding`, `layout`, `magit`, `mode`, `terminal`, `navigation`, `tabs`, `persistence`) plus `bug` or `enhancement` as appropriate.
 - The `pmo` agent is responsible for verifying labels at PR creation time and retroactively correcting any unlabeled open PRs it encounters.
 
+### PR milestone assignment
+
+- Every PR must be assigned to a milestone at creation time.
+- **Inherit from the closed issue(s).** When a PR closes one or more issues, assign the PR to the milestone of those issues. Use `gh api repos/germanD/knayawp.el/issues/PR_NUMBER -X PATCH -F milestone=NUMBER`.
+- If a PR addresses work not tracked by a milestoned issue (e.g., a chore or hotfix), assign it to the current active milestone.
+- The `pmo` agent is responsible for verifying milestone assignment at PR creation time and retroactively assigning any unassigned PR it encounters.
+
 ### PR reviewers
 
 Reviewer assignment is declarative: see [`.github/CODEOWNERS`](.github/CODEOWNERS). GitHub auto-requests review from the matching owner(s) on every PR. To scale, add owners or path-specific globs to that file — do not duplicate the routing logic in prose here.
@@ -215,6 +222,7 @@ Before merging a PR, verify:
 - [ ] The PR description includes a test plan with byte-compile, checkdoc, and ERT steps.
 - [ ] The test plan steps were actually executed and their output matches expectations (check the PR body or linked commit for evidence).
 - [ ] No `.el` changes bypass the [Quality Checklist](#quality-checklist) — if they do, block the merge and raise the gap.
+- [ ] The PR is assigned to the milestone of the issue(s) it closes (or the current active milestone for untracked chore/hotfix work).
 - [ ] For PRs touching interactive window management: a probe in `test/probes/` is present and its `run-probe.sh` output (all scenarios GREEN) is included in the PR body. If absent, the PR body contains an explicit justification.
 
 Interactive window-management behaviour (side-window creation/deletion, zoom, monocle, panel focus, commit flow) cannot be verified by `emacs -batch` ERT tests because batch mode has no real frame geometry. The `-nw` probe harness (`test/run-probe.sh`) fills this gap. A probe that is GREEN is the primary evidence of correctness for these workflows; the ERT suite is a necessary but not sufficient gate.
@@ -535,6 +543,7 @@ the PR body (e.g. "covered by existing `monocle.el` probe").
 - At release prep, verify the package header `;; Version:` matches the milestone tag, the changelog has an entry, and all issues in the milestone are closed.
 - Move enhancement leftovers from a closing milestone to the next open milestone rather than leaving them orphaned.
 - Verifies labels at PR creation time: inherit area labels from closed issues; apply area + type labels for untracked work. Retroactively corrects any unlabeled open PRs encountered.
+- Verifies milestone assignment at PR creation time: assign the PR to the milestone of the issue(s) it closes; assign chore/hotfix PRs to the current active milestone. Retroactively assigns any unassigned merged PR it encounters.
 - Runs the [PR reviewer self-review checklist](#pr-reviewers) before any PR is merged: `Closes #N` link, label, test plan present and evidenced. Blocks the merge and raises the gap if any item fails.
 - **At milestone close and release prep**, spawns `kb-librarian` to run a gap audit. High-severity gaps block the milestone close until resolved or explicitly deferred. Medium/low gaps are tracked as new issues.
 - All GitHub state changes go through `gh`. Never poke `.git/` for issue/milestone state.
