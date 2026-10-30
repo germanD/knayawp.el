@@ -38,6 +38,8 @@ Key design choices with their context and trade-offs:
 - [ADR-003](decisions/adr-003-terminal-isolation.md) — Terminal backend abstraction
 - [ADR-004](decisions/adr-004-with-editor-cooperation.md) — with-editor winconf
   cooperation for commit zoom
+- [ADR-005](decisions/adr-005-claude-edit-mode-map.md) — dedicated minor-mode map
+  for Claude edit-buffer keys (vs `local-set-key`)
 
 ## Related Project Files
 
