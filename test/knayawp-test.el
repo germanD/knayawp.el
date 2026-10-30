@@ -3957,6 +3957,32 @@ submit it; `server-edit' still runs and the user is messaged."
       (should (stringp messaged))
       (should (string-match-p "Save failed" messaged)))))
 
+(ert-deftest knayawp-test-finish-save-failure-clears-modified-flag ()
+  "`knayawp--claude-edit-finish' clears the modified flag on save failure.
+A still-modified temp buffer would make `server-edit'/`kill-buffer'
+raise a blocking \"Buffer modified; kill anyway?\" prompt — the hang
+class #167 targets.  Mirror the abort path and release the buffer
+unmodified; `server-edit' still runs and the dispatch RET is skipped."
+  (let ((edited nil) (send-called nil))
+    (with-temp-buffer
+      (insert "stale prompt")
+      (set-buffer-modified-p t)
+      (cl-letf (((symbol-function 'save-buffer)
+                 (lambda (&rest _) (error "boom")))
+                ((symbol-function 'server-edit) (lambda () (setq edited t)))
+                ((symbol-function 'knayawp--claude-edit-restore-display) #'ignore)
+                ((symbol-function 'knayawp--claude-edit-select-window) #'ignore)
+                ((symbol-function 'sit-for) #'ignore)
+                ((symbol-function 'knayawp--claude-panel-window)
+                 (lambda () 'fake-win))
+                ((symbol-function 'message) #'ignore)
+                ((symbol-function 'knayawp--claude-panel-send-string)
+                 (lambda (_s) (setq send-called t))))
+        (knayawp--claude-edit-finish t)
+        (should-not (buffer-modified-p))
+        (should edited)
+        (should-not send-called)))))
+
 (ert-deftest knayawp-test-finish-save-ok-dispatch-sends-return ()
   "`knayawp--claude-edit-finish' sends \"\\r\" on the success+dispatch path.
 Confirms the unchanged happy path: save ok, `server-edit' runs, and the
