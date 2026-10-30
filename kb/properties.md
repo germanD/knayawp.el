@@ -1,6 +1,6 @@
 ---
 title: knayawp.el Invariants and Properties
-last-updated: 2026-08-10
+last-updated: 2026-10-30
 status: draft
 ---
 
@@ -97,3 +97,27 @@ The reconcile is driven by `knayawp--reconcile-commit-style`, which both `knayaw
 **Operational walkthrough:** suppose the user switches from `'zoom` to `'editor` mid-session via `M-x customize-option RET knayawp-magit-commit-style RET`. The `:set` form fires, detects that the magit integration is live (`magit-display-buffer-function` is `knayawp--magit-display-buffer`), and calls `knayawp--reconcile-commit-style`. That function removes the `git-commit-setup-hook` and `with-editor-post-{finish,cancel}-hook` entries installed for `'zoom` and instead installs the `COMMIT_EDITMSG` `display-buffer-alist` entry for `'editor`. The next commit session runs under `'editor` without any restart. A bare `(setq knayawp-magit-commit-style 'editor)` skips the `:set` form and leaves the old hooks in place; the new value is applied on the next `knayawp-layout-setup` call.
 
 **Why:** Without this invariant, switching styles at runtime leaves stale install bits behind — for example, the zoom commit-flow hooks remain installed after a switch to `'editor`, intercepting the next commit and routing COMMIT_EDITMSG into the magit slot instead of the editor pane. The scenario-2 probe in PR #76 caught this defect; the reconcile design replaces the previous install-only setup path.
+
+## P11: Claude Edit Abort Must Not Raise a Foreign Frame
+
+When `knayawp--claude-edit-abort` selects the return-focus window, it must guard
+against raising a frame other than the one containing the active knayawp layout.
+
+Specifically: the abort handler may only select `knayawp--claude-edit-origin-window`
+when `(eq (window-frame origin) (window-frame knayawp--editor-window))` is non-nil.
+When this condition fails (origin is on a different frame, e.g. from an
+`emacsclient --create-frame` invocation), the handler must fall back to selecting
+the Claude panel on the layout frame instead.
+
+This guards against the following failure: user triggers a Claude edit from a
+secondary frame while a knayawp layout lives on the primary frame; abort without
+this guard would `select-window` on the secondary frame, raising it and abandoning
+the layout frame.
+
+**Mechanism:** the same-frame test `(eq (window-frame origin) (window-frame
+knayawp--editor-window))` is also applied when deciding whether an origin window
+is still a valid return target. `knayawp--editor-window` serves as the layout
+frame's canonical anchor for this comparison.
+
+**Scope:** applies to `knayawp--claude-edit-abort` only. On finish, focus always
+goes to the Claude panel (no origin-return), so the cross-frame issue does not arise.
