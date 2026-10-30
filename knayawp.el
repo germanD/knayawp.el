@@ -2475,18 +2475,25 @@ modified buffer — the same approach used by `with-editor-finish' in
 magit.  Restores any display change made for the edit (see
 `knayawp--claude-edit-restore-display').
 If `save-buffer' signals (read-only filesystem, disk full, locked
-file), release emacsclient anyway so its process never blocks: run
+file), release emacsclient anyway so its process never blocks: mark
+the buffer unmodified so `server-edit' (and any `kill-buffer' it
+triggers) completes without a blocking save/kill prompt — mirroring
+the abort path in `knayawp--claude-edit-abort' — then run
 `server-edit', restore the display, and refocus Claude, but SKIP the
 auto-dispatch carriage return — the on-disk prompt was not updated, so
 auto-submitting would send a stale or empty prompt.  Message the user
-that the save failed and the prompt was not submitted."
+that the save failed and the stale prompt was delivered unsaved."
   (interactive)
   (let ((save-failed nil))
     (condition-case err
         (save-buffer)
       (error
        (setq save-failed t)
-       (message "knayawp: Save failed (%s) — prompt NOT submitted"
+       ;; Clear the modified flag so `server-edit' releases emacsclient
+       ;; without a "Buffer modified; kill anyway?" prompt — the edits
+       ;; could not be saved and the user is told, so nothing is lost.
+       (set-buffer-modified-p nil)
+       (message "knayawp: Save failed (%s) — prompt not saved; delivered stale"
                 (error-message-string err))))
     (server-edit)
     (knayawp--claude-edit-restore-display)
