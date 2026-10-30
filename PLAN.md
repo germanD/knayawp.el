@@ -237,13 +237,13 @@ Resolved design decisions:
 
 - [ ] chore: audit knayawp command-map bindings for conflicts with common packages — #128
 - [x] ci: update GitHub Actions to drop deprecated Node.js 20 runner — #134
-- [ ] infra: Claude editor integration has no end-to-end test coverage — design automated path — #130
+- [x] infra: Claude editor integration has no end-to-end test coverage — design automated path — #130
 - [x] feat: add knayawp-claude-edit-style (route temp file into Claude panel, restore on done) — #133
 - [x] feat: return focus to Claude panel after C-c C-c in prompt editor — #135
 - [x] feat: C-c C-k abort binding and message for Claude prompt editor — #143
 - [x] feat: shared auto-dispatch option (simulate Enter on finish) for Claude prompt editor and send-to-Claude compose — #144
 - [x] bug: knayawp--claude-edit-abort should return focus to origin window, not always Claude panel — #164
-- [ ] hardening: recover gracefully when save-buffer fails in knayawp--claude-edit-finish — #167
+- [x] hardening: recover gracefully when save-buffer fails in knayawp--claude-edit-finish — #167
 - [ ] kb: document dual server-hook pattern and abort origin-return semantics — #171
 - [ ] kb: document knayawp-claude-auto-dispatch in spec.md — #172
 - [ ] kb: add missing style-independent key bindings to spec.md table (t, C-x) — #174
