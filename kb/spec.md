@@ -1,6 +1,6 @@
 ---
 title: knayawp.el Product Specification
-last-updated: 2026-08-10
+last-updated: 2026-10-30
 status: draft
 ---
 
@@ -76,6 +76,9 @@ All three styles bind the same command surface; they differ only in the suppleme
 | `s` | `knayawp-toggle-panels` | Show / hide all side panels |
 | `SPC` | `knayawp-terminal-copy-mode` | Enter copy/scroll mode in the terminal panel |
 | `y` | `knayawp-terminal-yank` | Yank kill-ring head into the terminal panel |
+| `c` | `knayawp-send-to-claude` | Send region / reference to the Claude panel |
+| `t` | `knayawp-send-to-terminal` | Send active region to the terminal panel |
+| `C-x` | `knayawp-claude-send-ctrl-x` | Send the Control-x byte to the Claude terminal |
 
 **`C-x o` isolation** — `knayawp-isolate-other-window-flag` (default `t`) attaches `no-other-window` to each side window so that `C-x o` cycles only among editor-pane windows. Set to `nil` to allow `C-x o` to walk into the side windows. The change takes effect on the next `knayawp-layout-setup` call; existing side windows keep the parameter they were built with.
 
@@ -199,6 +202,56 @@ Per GNU Emacs conventions, `C-c LETTER` is reserved for users. The package defin
 (global-set-key (kbd "C-c k") knayawp-command-map)
 ```
 
+### Command-map conflict audit (v0.1.6)
+
+The full set of bindings installed by `knayawp--bind-common-keys` (style-independent)
+plus the style-specific additions:
+
+**Style-independent (all styles):**
+`l`, `q`, `1`, `2`, `3`, `n`, `p`, `z`, `Z`, `0`, `s`, `SPC`, `y`, `c`, `t`, `C-x`
+
+**tmux style adds:** `<up>`, `<down>`
+
+**byobu style adds:** `S-<up>`, `S-<down>`
+
+**Conflict analysis** (assuming the user binds the map to `C-c k`):
+
+| Key | Conflict with popular packages | Status |
+|-----|-------------------------------|--------|
+| `l` | None identified | Clean |
+| `q` | None identified | Clean |
+| `1` / `2` / `3` / `0` | None in prefix maps | Clean |
+| `n` / `p` | None in prefix maps | Clean |
+| `z` | None identified | Clean |
+| `Z` | None identified | Clean |
+| `s` | None identified | Clean |
+| `SPC` | None identified | Clean |
+| `y` | None identified | Clean |
+| `c` | None identified | Clean |
+| `t` | None identified | Clean |
+| `C-x` | **Potential**: `C-x` is an Emacs-global prefix. As a second key under `C-c k`, the full sequence is `C-c k C-x` — this is a three-key chord and does not conflict with any standalone `C-x` binding. The binding is intentional: it delivers the Control-x byte to the Claude terminal (see `knayawp-claude-send-ctrl-x`). No code change required. | Intentional — documented |
+| `<up>` / `<down>` (tmux) | `<up>` / `<down>` are unbound in most prefix maps; no conflict identified | Clean |
+| `S-<up>` / `S-<down>` (byobu) | Conflict with v0.3 panel-resize bindings (#119) which plan to use `S-<up>`/`S-<down>` for grow/shrink. Must be resolved before v0.3 lands. | **Known future conflict** — tracked in spec under byobu style note |
+
+**GNU `C-c` reservation compliance:** `C-c LETTER` is reserved for users. The
+package does not install `C-c k` (or any `C-c LETTER`) globally. All bindings above
+are under `knayawp-command-map`, which the user must bind explicitly. The package is
+compliant with GNU key-binding conventions (property P6).
+
+**Minor-mode keymaps in edit buffers:**
+
+`knayawp-claude-edit-mode-map` (active only in Claude edit temp buffers):
+
+| Key | Command | Conflict |
+|-----|---------|---------|
+| `C-c C-c` | `knayawp--claude-edit-finish-and-dispatch` | `C-c C-c` is conventionally "send/finish" in many modes (`org-mode`, `message-mode`, `with-editor`). In those modes this binding is not installed. In the Claude edit buffer, the temp file is opened in `text-mode` or `fundamental-mode` where `C-c C-c` is unbound by default. The binding is intentional and consistent with the convention. |
+| `C-x #` | `knayawp--claude-edit-finish` | Standard `server-edit` binding — consistent with the existing Emacs convention for `emacsclient` buffers. |
+| `C-c C-k` | `knayawp--claude-edit-abort` | Consistent with `magit-commit-abort` convention (`C-c C-k` = discard). No conflict in the edit temp file context. |
+
+**Conclusion:** No bindings require renaming as of v0.1.6. The `byobu` + v0.3 resize
+conflict is a known future issue and is already noted in the `byobu` style description
+above. The `C-x` binding in `knayawp-command-map` is intentional and not a conflict.
+
 ## Claude Code Integration
 
 **OS notifications when Claude waits for input.** When Claude Code runs in the terminal
@@ -255,3 +308,68 @@ owns `server-switch-hook` at that time, is never disturbed.
 The restore step is guarded narrowly — it acts only when a displaced Claude buffer or a
 saved window configuration was actually recorded for this edit — so it never interferes
 with the magit commit flow or other emacsclient users, which travel separate code paths.
+
+**Auto-dispatch on finish** — `knayawp-claude-auto-dispatch` (default `t`) controls
+whether finishing an edit automatically submits the prompt to Claude. When non-nil,
+`knayawp--claude-edit-finish-and-dispatch` (bound to `C-c C-c` in the edit buffer)
+saves the file, calls `server-edit`, restores the display, focuses the Claude panel,
+and then sends a carriage return to the Claude terminal so the prompt is submitted
+without requiring a manual Enter. When nil, the same command delivers the prompt to
+the Claude panel and focuses it, but does not auto-submit — the user presses Enter.
+The same flag governs the `knayawp-send-to-claude` compose-buffer path: when
+`knayawp-claude-auto-dispatch` is non-nil, `knayawp-claude-prompt-send-and-dispatch`
+auto-submits the composed prompt; when nil it stops at delivery.
+
+The header line of the edit buffer reflects the current value of the flag at edit
+start: the `C-c C-c` label changes between "send+dispatch" (auto-submit on) and plain
+"send" (auto-submit off).
+
+**Dual server-hook pattern** — the Claude editor integration uses two hooks in
+concert to correctly capture the trigger-origin window and route the emacsclient temp
+file:
+
+1. `server-visit-hook` → `knayawp--claude-edit-record-origin` (prepended, runs
+   BEFORE `server-switch-buffer` changes `selected-window`). Records the currently
+   selected window in `knayawp--claude-edit-origin-window` buffer-locally on the
+   new file buffer. This captures the window the edit was triggered from — typically
+   the Claude panel, but possibly the editor pane or another managed panel — before
+   Emacs moves focus away.
+
+2. `server-switch-hook` → `knayawp--claude-editor-server-switch` (appended, runs
+   AFTER `server-switch-buffer` and magit's own handlers). Routes the temp file per
+   `knayawp-claude-edit-style`, enables `knayawp-claude-edit-mode` on the buffer,
+   and builds the header line. The APPEND flag ensures this runs after
+   `magit-commit-diff-while-committing` so the two flows never interfere.
+
+Both handlers are no-ops unless: `knayawp-claude-editor-flag` is non-nil, a knayawp
+layout is active, the editor window is live, the current buffer is visiting a file,
+and no commit-flow session is currently active. This guards against routing magit
+commit-message buffers and other non-Claude emacsclient opens.
+
+**Abort focus-return semantics** — `knayawp--claude-edit-abort` (bound to `C-c C-k`)
+marks the buffer unmodified, calls `server-edit` to release emacsclient, restores the
+display (undoing any `claude-panel` displacement or `zoom` window configuration), and
+then selects a focus window. Focus goes to `knayawp--claude-edit-origin-window` when
+that window is still live and on the same frame as the layout. The same-frame guard
+(comparing `(window-frame origin)` with `(window-frame knayawp--editor-window)`)
+prevents an `emacsclient --create-frame` invocation from causing the abort to raise a
+foreign frame. When the origin window is dead or on a different frame, focus falls
+back to the Claude panel via `knayawp--claude-edit-select-window`.
+
+On finish (`C-c C-c` / `C-x #`), focus always goes to the Claude panel — the edit
+is done and the user's attention should return to Claude, not to whatever triggered
+the edit.
+
+**`knayawp-claude-edit-mode`** — a buffer-local minor mode enabled by
+`knayawp--claude-editor-server-switch` on each emacsclient temp file Claude opens for
+prompt editing. Provides the finish/dispatch/abort keybindings in its own dedicated
+keymap (`knayawp-claude-edit-mode-map`) rather than via `local-set-key`. The keymap
+approach avoids mutating the shared major-mode keymap that all buffers in the same
+major mode share (see ADR-005). The mode's lighter is `" ClaudeEdit"`. It is disabled
+automatically when the buffer is killed (standard minor-mode semantics). Bindings:
+
+| Key | Command | Description |
+|-----|---------|-------------|
+| `C-c C-c` | `knayawp--claude-edit-finish-and-dispatch` | Save, signal done, auto-submit (when `knayawp-claude-auto-dispatch` is non-nil) |
+| `C-x #` | `knayawp--claude-edit-finish` | Save, signal done, focus Claude (no auto-submit) |
+| `C-c C-k` | `knayawp--claude-edit-abort` | Discard draft, return focus to origin |
