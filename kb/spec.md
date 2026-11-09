@@ -244,7 +244,7 @@ compliant with GNU key-binding conventions (property P6).
 
 | Key | Command | Conflict |
 |-----|---------|---------|
-| `C-c C-c` | `knayawp--claude-edit-finish-and-dispatch` | `C-c C-c` is conventionally "send/finish" in many modes (`org-mode`, `message-mode`, `with-editor`). In those modes this binding is not installed. In the Claude edit buffer, the temp file is opened in `text-mode` or `fundamental-mode` where `C-c C-c` is unbound by default. The binding is intentional and consistent with the convention. |
+| `C-c C-c` | `knayawp--claude-edit-finish-and-dispatch` | `C-c C-c` is conventionally "send/finish" in many modes (`org-mode`, `message-mode`, `with-editor`). In those modes this binding is not installed. In the Claude edit buffer, the temp file (`claude-prompt-*.md`) is opened in `markdown-mode` when that package is installed (which binds `C-c C-c` as a prefix), or `fundamental-mode` otherwise. `knayawp-claude-edit-mode-map` is a minor-mode map; it **shadows** any major-mode `C-c C-c` binding via the standard `minor-mode-map-alist` precedence, so no conflict or rename is required (see ADR-005). |
 | `C-x #` | `knayawp--claude-edit-finish` | Standard `server-edit` binding — consistent with the existing Emacs convention for `emacsclient` buffers. |
 | `C-c C-k` | `knayawp--claude-edit-abort` | Consistent with `magit-commit-abort` convention (`C-c C-k` = discard). No conflict in the edit temp file context. |
 

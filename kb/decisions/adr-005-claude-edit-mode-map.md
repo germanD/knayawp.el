@@ -16,21 +16,23 @@ layout, it must make three keybindings available on that buffer:
 - `C-c C-k` → `knayawp--claude-edit-abort`
 
 The simplest implementation would be `local-set-key` (or equivalently
-`(define-key (current-local-map) ...)`). Claude's temp files are typically opened in
-`text-mode` or `fundamental-mode`; these modes share a single keymap object across all
-their buffers.
+`(define-key (current-local-map) ...)`). Claude's temp files are named `claude-prompt-*.md` and are typically opened in
+`markdown-mode` when that package is installed (the common real-world case — this is
+the environment where #180 manifested); `fundamental-mode` is the fallback when
+markdown-mode is absent. Both modes share a single keymap object across all their
+buffers.
 
 ## Problem
 
 `local-set-key` does not create a buffer-local keymap. It mutates the *mode-local*
 keymap — the keymap shared by all buffers in the same major mode. A `(local-set-key
-(kbd "C-c C-c") #'knayawp--...)` call in a `text-mode` Claude temp buffer would
-permanently add the binding to the `text-mode-map`, making it active in every
-`text-mode` buffer for the rest of the Emacs session.
+(kbd "C-c C-c") #'knayawp--...)` call in a `markdown-mode` Claude temp buffer would
+permanently add the binding to the `markdown-mode-map`, making it active in every
+`markdown-mode` buffer for the rest of the Emacs session.
 
-This was the defect fixed in #180: users who had other `text-mode` buffers open would
-find `C-c C-c` bound to a knayawp command instead of whatever it was before (or
-whatever other package had installed it). The binding persisted after the Claude edit
+This was the defect fixed in #180: users who had other `markdown-mode` buffers open
+would find `C-c C-c` rebound to a knayawp command instead of whatever markdown-mode
+(or another package) had installed it. The binding persisted after the Claude edit
 session ended, because `local-set-key` has no undo path.
 
 ## Decision
@@ -48,7 +50,7 @@ Claude edit buffer and never affect other buffers or the major-mode keymap.
 
 **Good:**
 - The finish/abort keys are strictly buffer-local and disappear when the buffer dies.
-- No major-mode keymap mutation; other `text-mode` (or any-mode) buffers are unaffected.
+- No major-mode keymap mutation; other `markdown-mode` (or any-mode) buffers are unaffected.
 - The minor mode is self-documenting: `M-x describe-mode` lists `ClaudeEdit` and its
   bindings in the buffer where it is active.
 - `substitute-command-keys` resolves `\\[...]` references correctly when the mode is
