@@ -2,7 +2,7 @@
 
 ;; Author: Germán Andrés Delbianco <knayawp@proton.me>
 ;; Maintainer: Germán Andrés Delbianco <knayawp@proton.me>
-;; Version: 0.1.5
+;; Version: 0.1.6
 ;; Package-Requires: ((emacs "29.1") (magit "3.0"))
 ;; Keywords: frames, convenience
 ;; URL: https://github.com/germanD/knayawp.el
