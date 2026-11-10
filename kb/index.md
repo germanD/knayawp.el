@@ -1,6 +1,6 @@
 ---
 title: knayawp.el Knowledge Base
-last-updated: 2026-10-06
+last-updated: 2026-11-10
 status: draft
 ---
 
@@ -40,6 +40,10 @@ Key design choices with their context and trade-offs:
   cooperation for commit zoom
 - [ADR-005](decisions/adr-005-claude-edit-mode-map.md) — dedicated minor-mode map
   for Claude edit-buffer keys (vs `local-set-key`)
+- [ADR-006](decisions/adr-006-per-project-server-identity.md) — per-project Emacs
+  server identity for sound multi-instance operation
+- [ADR-007](decisions/adr-007-package-vc-distribution.md) — `package-vc` as the
+  primary install and dogfooding path (over MELPA-first)
 
 ## Related Project Files
 

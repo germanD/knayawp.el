@@ -1,6 +1,6 @@
 ---
 title: knayawp.el Product Specification
-last-updated: 2026-10-30
+last-updated: 2026-11-10
 status: draft
 ---
 
@@ -373,3 +373,131 @@ automatically when the buffer is killed (standard minor-mode semantics). Binding
 | `C-c C-c` | `knayawp--claude-edit-finish-and-dispatch` | Save, signal done, auto-submit (when `knayawp-claude-auto-dispatch` is non-nil) |
 | `C-x #` | `knayawp--claude-edit-finish` | Save, signal done, focus Claude (no auto-submit) |
 | `C-c C-k` | `knayawp--claude-edit-abort` | Discard draft, return focus to origin |
+
+## Installation & Dogfooding
+
+### Installation paths
+
+knayawp targets **Emacs 29+** throughout. Installation paths in priority order:
+
+**Primary — `package-vc` (Emacs 29+ built-in):**
+
+```elisp
+;; End-user: install from GitHub HEAD
+(package-vc-install "https://github.com/germanD/knayawp.el")
+
+;; Contributor / dogfooder: install from a local checkout through real
+;; package machinery (generates autoloads, byte-compiles)
+(package-vc-install-from-checkout "/path/to/knayawp.el" "knayawp")
+```
+
+`package-vc` is the primary path because it is built into the 29.1 target, provides
+the full end-user experience (autoloads, byte-compilation, `package-installed-p`
+integration), and lets a dogfooder load HEAD from a working checkout without manual
+`load` calls or missing autoloads.
+
+**Secondary — `use-package :vc` (Emacs 30 native; Emacs 29 with `vc-use-package` shim):**
+
+```elisp
+;; Emacs 30+
+(use-package knayawp
+  :vc (:url "https://github.com/germanD/knayawp.el" :rev :newest))
+
+;; Emacs 29 — requires (package-install 'vc-use-package) first
+(use-package knayawp
+  :vc (:fetcher github :repo "germanD/knayawp.el"))
+```
+
+The `:vc` keyword delegates to `package-vc` under the hood on both versions.
+
+**Tertiary — from-source / manual load (contributors and hackers):**
+
+```elisp
+(add-to-list 'load-path "/path/to/knayawp.el/")
+(require 'knayawp)
+```
+
+This skips the package machinery (no autoloads generated, no byte-compilation unless
+done manually). Useful during active development but not recommended for end users.
+
+**Future — MELPA:**
+
+MELPA is the stated long-term distribution channel but requires a recipe submission
+and review cycle. It is not yet available. The package-vc path is the bridge until
+MELPA submission happens.
+
+**Rationale for package-vc over MELPA-first:** `package-vc` delivers a faithful
+end-user install experience (autoloads, byte-compilation, package registry integration)
+AND lets the dogfooder run directly against HEAD of a local checkout — both goals are
+met simultaneously. MELPA would not allow dogfooding HEAD from a local clone, and
+manual `load` lacks the autoload and byte-compile step. See ADR-007 for the full
+distribution-strategy rationale.
+
+### Dogfooding model — per-project isolated daemon
+
+The author's dogfooding workflow runs one Emacs daemon per project. Each daemon uses an
+isolated Emacs *profile* (a dedicated `--init-directory`) that installs knayawp the
+same way an end user would. This provides:
+
+- **Config isolation:** the profile has its own `init.el`, `elpa/`, `recentf`,
+  `desktop`, and server socket directory. No personal config bleeds in.
+- **End-user fidelity:** knayawp loads via `package-vc-install-from-checkout` (real
+  package machinery) rather than a bare `load`, so autoloads and byte-compilation are
+  exercised exactly as they would be for an end user.
+- **Reattachability:** `emacs --daemon=knayawp-<project>` starts a named daemon. After
+  disconnecting (`C-x C-c` in the client frame), the workspace survives and
+  `emacsclient -c -s knayawp-<project>` reattaches to it.
+- **No cross-instance cross-talk:** separate `server-socket-dir` per profile prevents
+  socket collisions; the per-project server name (see below) prevents `emacsclient`
+  routing errors between instances.
+
+**Minimal profile `init.el` pattern:**
+
+```elisp
+;; ~/.emacs.d/profiles/myproject/init.el
+;; Install knayawp from the local checkout, then configure it.
+(package-vc-install-from-checkout "/path/to/knayawp.el" "knayawp")
+(require 'knayawp)
+(setq knayawp-editor-server-name "knayawp-myproject")
+(knayawp-mode 1)
+```
+
+**Launch pattern:**
+
+```bash
+# Start the daemon (once per project, survives terminal close)
+emacs --init-directory=~/.emacs.d/profiles/myproject \
+      --daemon=knayawp-myproject
+
+# Attach a frame
+emacsclient -c -s knayawp-myproject \
+            --eval '(knayawp-layout-setup)'
+```
+
+This dogfooding model is a stepping stone until the built-in project-switching feature
+(v0.2 / v0.3) makes per-project workspace management available inside a single Emacs
+instance. It mimics the real end-user install flow closely enough that bugs in the
+install path, autoload generation, and package-vc integration surface during daily use.
+
+### Per-project server identity
+
+Each running knayawp instance must own a **distinct Emacs server socket** so that the
+`EDITOR=emacsclient -s <socket>` variable injected into each Claude terminal panel
+routes edit temp files to its own Emacs and not to a sibling instance. This is a
+correctness requirement — see property P12 and ADR-006.
+
+**`knayawp-editor-server-name`** is a `defcustom` that accepts either a string or a
+zero-argument function returning a string. The default is a function that derives the
+name from the current project root (e.g. project root `…/myapp/` → server name
+`"knayawp-myapp"`), falling back to `"knayawp"` when no project is current.
+
+For the isolated-profile dogfooding setup, the profile `init.el` should set this to a
+fixed string matching the daemon name:
+
+```elisp
+(setq knayawp-editor-server-name "knayawp-myproject")
+```
+
+This is the simplest way to guarantee uniqueness when multiple profiles are running
+concurrently, especially if two projects share the same directory name under different
+parent paths.
