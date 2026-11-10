@@ -3659,8 +3659,9 @@ the restart warning must not fire."
                      (knayawp--ensure-editor-server))))))
 
 (ert-deftest knayawp-test-ensure-editor-server-starts-own-server ()
-  "`knayawp--ensure-editor-server' starts a knayawp server when none is live."
+  "`knayawp--ensure-editor-server' starts a server under the resolved name."
   (let ((server-socket-dir "/run/user/1000/emacs")
+        (knayawp-editor-server-name "knayawp-myapp")
         (knayawp--editor-server-socket nil)
         (started-with-name nil))
     (cl-letf (((symbol-function 'knayawp--server-live-p) (lambda () nil))
@@ -3668,11 +3669,51 @@ the restart warning must not fire."
               ((symbol-function 'server-start)
                (lambda () (setq started-with-name server-name))))
       (let ((result (knayawp--ensure-editor-server)))
-        (should (equal knayawp--editor-server-name started-with-name))
-        (should (equal (expand-file-name knayawp--editor-server-name
+        (should (equal "knayawp-myapp" started-with-name))
+        (should (equal server-name "knayawp-myapp"))
+        (should (equal (expand-file-name "knayawp-myapp"
                                          "/run/user/1000/emacs")
                        result))
         (should (equal result knayawp--editor-server-socket))))))
+
+(ert-deftest knayawp-test-editor-server-name-string-verbatim ()
+  "`knayawp--editor-server-name' returns a string value verbatim."
+  (let ((knayawp-editor-server-name "knayawp-fixed"))
+    (should (equal "knayawp-fixed" (knayawp--editor-server-name)))))
+
+(ert-deftest knayawp-test-editor-server-name-calls-function ()
+  "`knayawp--editor-server-name' calls a function value and returns it."
+  (let ((knayawp-editor-server-name (lambda () "knayawp-from-fn")))
+    (should (equal "knayawp-from-fn" (knayawp--editor-server-name)))))
+
+(ert-deftest knayawp-test-editor-server-name-default-derives-project ()
+  "Default resolver derives \"knayawp-<project>\" from the project root."
+  (let ((knayawp-editor-server-name #'knayawp--default-editor-server-name))
+    (cl-letf (((symbol-function 'project-current)
+               (lambda (&optional _maybe-prompt _dir) 'stub-project))
+              ((symbol-function 'project-root)
+               (lambda (_project) "/tmp/myapp/")))
+      (should (equal "knayawp-myapp" (knayawp--editor-server-name))))))
+
+(ert-deftest knayawp-test-editor-server-name-default-nil-project ()
+  "Default resolver falls back to \"knayawp\" when no project is current."
+  (let ((knayawp-editor-server-name #'knayawp--default-editor-server-name))
+    (cl-letf (((symbol-function 'project-current)
+               (lambda (&optional _maybe-prompt _dir) nil)))
+      (should (equal "knayawp" (knayawp--editor-server-name))))))
+
+(ert-deftest knayawp-test-editor-server-name-sanitizes-slashes ()
+  "`knayawp--editor-server-name' replaces slashes and spaces with hyphens."
+  (let ((knayawp-editor-server-name "knayawp/odd name"))
+    (should (equal "knayawp-odd-name" (knayawp--editor-server-name)))))
+
+(ert-deftest knayawp-test-default-editor-server-name-no-trailing-slash ()
+  "Default resolver handles a root with no trailing slash identically."
+  (cl-letf (((symbol-function 'project-current)
+             (lambda (&optional _maybe-prompt _dir) 'stub-project))
+            ((symbol-function 'project-root)
+             (lambda (_project) "/tmp/myapp")))
+    (should (equal "knayawp-myapp" (knayawp--default-editor-server-name)))))
 
 (ert-deftest knayawp-test-teardown-removes-claude-editor-hook ()
   "`knayawp-layout-teardown' unregisters the Claude editor hook."
