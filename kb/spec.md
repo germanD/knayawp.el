@@ -403,7 +403,11 @@ integration), and lets a dogfooder load HEAD from a working checkout without man
 (use-package knayawp
   :vc (:url "https://github.com/germanD/knayawp.el" :rev :newest))
 
-;; Emacs 29 — requires (package-install 'vc-use-package) first
+;; Emacs 29 — first install the shim via package-vc (not on MELPA):
+;;   (package-vc-install "https://github.com/slotThe/vc-use-package")
+;;   (require 'vc-use-package)
+;; Note: on Emacs 29 the primary package-vc-install path (above) avoids
+;; this third-party shim entirely and is the simpler choice.
 (use-package knayawp
   :vc (:fetcher github :repo "germanD/knayawp.el"))
 ```
