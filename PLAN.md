@@ -266,6 +266,12 @@ Resolved design decisions:
 - [x] test: remove vacuous (should (null ...)) assertion in sleeping-editor ERT test — #151
 - [x] ci: clarify set -euo pipefail intent in bootstrap-elpa.sh — #152
 
+### v0.1.7 — Packaging & Dogfooding
+
+- [ ] bug: per-project Emacs server identity — replace global knayawp--editor-server-name constant — #186
+- [ ] infra: per-project dogfood launcher (isolated profile + named daemon) — #187
+- [ ] docs: README installation section (package-vc primary, use-package :vc, from-source, MELPA future) — #188
+
 ---
 
 ## v0.3 — Alternative Layouts and Panel Rotation
