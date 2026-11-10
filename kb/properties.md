@@ -1,6 +1,6 @@
 ---
 title: knayawp.el Invariants and Properties
-last-updated: 2026-10-30
+last-updated: 2026-11-10
 status: draft
 ---
 
@@ -121,3 +121,30 @@ frame's canonical anchor for this comparison.
 
 **Scope:** applies to `knayawp--claude-edit-abort` only. On finish, focus always
 goes to the Claude panel (no origin-return), so the cross-frame issue does not arise.
+
+## P12: Each Live knayawp Instance Owns a Distinct Emacs Server Socket
+
+No two concurrently-running knayawp Emacs instances may share a server name or server
+socket. Each instance must start (or reuse) a server with a name that is unique to that
+instance, so that the `EDITOR=emacsclient -s <socket>` variable injected into each
+Claude terminal panel routes edit temp files exclusively to its own Emacs.
+
+**Why:** When two instances share the same server name, the second instance either
+fails to start its server (socket already owned) or silently steals the socket from the
+first. In either case, `emacsclient` calls from project A's Claude panel may be handled
+by project B's Emacs — a silent, hard-to-diagnose correctness failure. This invariant
+is the enabling prerequisite for running knayawp in the per-project daemon model (see
+spec.md "Installation & Dogfooding" and ADR-006).
+
+**Mechanism:** `knayawp-editor-server-name` (a `defcustom` accepting a string or
+zero-argument function) must resolve to a name that is unique across all running
+instances. The default value is a function that derives the name from the project root
+directory name (e.g. `"knayawp-myapp"`), guaranteeing uniqueness when projects have
+distinct root directory names. `knayawp--ensure-editor-server` resolves and caches the
+name at server-start time, then uses the cached value for subsequent `emacsclient`
+invocations from the same Claude terminal buffer.
+
+**Current violation:** the existing code uses `(defconst knayawp--editor-server-name
+"knayawp" ...)` — a single global constant shared by all instances. This violates P12
+and must be replaced with the `defcustom` described in ADR-006. The violation is
+tracked as a code issue for the v0.1.7 milestone.
