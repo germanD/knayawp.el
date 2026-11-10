@@ -2386,8 +2386,53 @@ recorded entry from `display-buffer-alist' and clear
 
 ;;;; Claude editor integration (#121)
 
-(defconst knayawp--editor-server-name "knayawp"
-  "Name of the Emacs server knayawp starts for Claude editor integration.")
+(defun knayawp--sanitize-server-name (name)
+  "Return NAME with characters invalid in a server name replaced by \"-\".
+Slashes and whitespace runs collapse to a single hyphen so the result is a
+valid `server-name' usable as a socket filename.  Return \"knayawp\" when
+NAME reduces to the empty string."
+  (let ((clean (replace-regexp-in-string "[/[:space:]]+" "-" name)))
+    (if (string-empty-p clean) "knayawp" clean)))
+
+(defun knayawp--default-editor-server-name ()
+  "Return a per-project Emacs server name, or \"knayawp\" fallback.
+Derive the name from the current project root's last path component,
+prepending \"knayawp-\" (e.g. project root `…/myapp/' yields
+\"knayawp-myapp\").  Return \"knayawp\" when no project is current, for
+single-instance compatibility."
+  (let* ((proj (ignore-errors (project-current)))
+         (root (and proj (ignore-errors (project-root proj)))))
+    (if root
+        (let* ((dir (directory-file-name (expand-file-name root)))
+               (base (file-name-nondirectory dir)))
+          (if (string-empty-p base)
+              "knayawp"
+            (knayawp--sanitize-server-name (concat "knayawp-" base))))
+      "knayawp")))
+
+(defcustom knayawp-editor-server-name #'knayawp--default-editor-server-name
+  "Name of the Emacs server knayawp starts for Claude editor integration.
+The value is either a string used verbatim, or a zero-argument function
+returning a string.  The default is a function that derives a per-project
+name from the current project root (e.g. \"knayawp-myapp\"), falling back
+to \"knayawp\" when no project is current.
+
+This option governs `knayawp--ensure-editor-server' only on the
+non-daemon path, where knayawp itself calls `server-start'.  In the
+daemon model the daemon's own `--daemon=NAME' server is reused and this
+option is not consulted.  See ADR-006 and property P12."
+  :type '(choice (string :tag "Fixed server name")
+                 (function :tag "Function returning a name"))
+  :group 'knayawp)
+
+(defun knayawp--editor-server-name ()
+  "Return the effective Emacs server name as a string.
+Resolve `knayawp-editor-server-name': call it when it is a function,
+otherwise use it directly, then sanitize the result."
+  (let ((value (if (functionp knayawp-editor-server-name)
+                   (funcall knayawp-editor-server-name)
+                 knayawp-editor-server-name)))
+    (knayawp--sanitize-server-name value)))
 
 (defvar knayawp--editor-server-socket nil
   "Socket path of the server knayawp started; nil until first use.")
@@ -2406,9 +2451,10 @@ set by `server-start' only when THIS Emacs is the server."
 (defun knayawp--ensure-editor-server ()
   "Ensure a live Emacs server exists; return its socket path or nil.
 If this process already has a live server, return that server's socket
-path.  Otherwise start a new server named `knayawp--editor-server-name'
-to avoid conflict with daemon sockets that share the default \\\"server\\\"
-name, and cache the path in `knayawp--editor-server-socket'."
+path.  Otherwise resolve `knayawp-editor-server-name' to a per-project
+name, start a new server under it to avoid conflict with daemon sockets
+that share the default \\\"server\\\" name, and cache the path in
+`knayawp--editor-server-socket'."
   (require 'server)
   (cond
    ((knayawp--server-live-p)
@@ -2416,15 +2462,14 @@ name, and cache the path in `knayawp--editor-server-socket'."
         (expand-file-name server-name server-socket-dir)))
    (t
     (condition-case err
-        (progn
-          (let ((server-name knayawp--editor-server-name))
+        (let ((name (knayawp--editor-server-name)))
+          (let ((server-name name))
             (server-start))
           ;; Persist server-name so with-editor reads the correct socket
           ;; when building its emacsclient command (e.g. for git rebase -i).
-          (setq server-name knayawp--editor-server-name)
+          (setq server-name name)
           (setq knayawp--editor-server-socket
-                (expand-file-name knayawp--editor-server-name
-                                  server-socket-dir)))
+                (expand-file-name name server-socket-dir)))
       (error
        (message "knayawp: could not start Emacs server: %S" err)
        nil)))))
