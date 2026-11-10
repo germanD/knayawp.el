@@ -14,12 +14,35 @@ properties.md P12 for the invariant statement.
 
 ## Context
 
-The dogfooding model (see spec.md "Installation & Dogfooding") runs one Emacs daemon
-per project, each in an isolated profile directory. Each daemon calls
-`knayawp--ensure-editor-server` to start an Emacs server so that Claude Code can open
-edit temp files via `emacsclient`. The server must have a known, stable socket name so
-the `EDITOR=emacsclient -s <socket>` environment variable injected into the Claude
-terminal points to the right Emacs instance.
+`knayawp--ensure-editor-server` has two branches:
+
+- **Branch 1 (server already live):** `knayawp--server-live-p` checks whether
+  `server-process` is a live process — meaning *this* Emacs is already the server.
+  When true, the function returns the socket path of the existing server (`server-name`
+  / `server-socket-dir`) without starting anything new.
+- **Branch 2 (no server yet):** the function calls `server-start` with the hardcoded
+  constant `knayawp--editor-server-name` (`"knayawp"`).
+
+**Consequence for the two launch methods:**
+
+In the **daemon model** (`emacs --daemon=knayawp-<project>`), the daemon process starts
+an Emacs server named `knayawp-<project>` at startup — before knayawp runs any code.
+When `knayawp--ensure-editor-server` is later called, `server-process` is already live
+(branch 1 wins). The function reuses that daemon's own server and returns its socket
+path (`<socket-dir>/knayawp-<project>`). Branch 2 and the hardcoded `"knayawp"` name
+are never reached. Each daemon already has a distinct socket via its `--daemon=NAME`;
+knayawp does not create a new one. As a consequence, `knayawp-editor-server-name` (the
+defcustom this ADR introduces) is **not consulted** in the daemon model — the daemon's
+own `--daemon=NAME` is the source of server identity there.
+
+In the **non-daemon case** (multiple plain `emacs` instances, as in the current
+`test/run-prod.sh` workflow), no server is running at startup. Each instance reaches
+branch 2 and calls `server-start` with the hardcoded constant `"knayawp"`. The second
+instance collides with the first — it either steals the socket or fails to start.
+More dangerously, the `EDITOR=emacsclient -s <dir>/knayawp` variable injected into
+*each* Claude panel points to the same socket, so an edit temp file from project A's
+Claude terminal is handled by project B's Emacs. This silent cross-routing is the
+primary failure mode this ADR addresses.
 
 The current implementation stores the server name in a global `defconst`:
 
@@ -27,17 +50,13 @@ The current implementation stores the server name in a global `defconst`:
 (defconst knayawp--editor-server-name "knayawp" ...)
 ```
 
-When a single Emacs instance is running this causes no problem. With multiple
-concurrent instances — the normal state under the dogfooding model — every instance
-tries to own the socket named `"knayawp"` under the same `server-socket-dir`. The
-second instance either steals the socket or fails to start. More dangerously, the
-`EDITOR` variable injected into *each* Claude panel points to the same socket path, so
-an edit temp file opened in project A's Claude terminal may be routed to project B's
-Emacs, silently delivering the edit to the wrong instance.
+This constant governs branch 2. It causes no problem with a single instance but breaks
+silently when two or more plain `emacs` instances run concurrently and share the same
+`server-socket-dir`.
 
 ### Mechanism options considered
 
-Three approaches for making the server name per-instance were evaluated:
+Three approaches for making the server name per-instance in branch 2 were evaluated:
 
 1. **Derive from project root at layout-setup time** — call
    `(project-root (project-current))` during `knayawp-layout-setup` and produce a
@@ -72,19 +91,23 @@ subsequent `emacsclient` invocations from the same terminal so the socket path i
 stable for the lifetime of a Claude panel.
 
 The `defcustom` approach (option 3) is chosen over pure auto-derivation (option 1)
-because it preserves an explicit override path for the isolated-profile dogfooding
-setup: a profile `init.el` can still set a fixed string name if the project-root
-derivation produces an undesirable name (e.g. for projects with deeply nested or
-unusual root structures). The function default makes the common case require zero
-configuration.
+because it preserves an explicit override path for any launch method: an `init.el` can
+still set a fixed string name if the project-root derivation produces an undesirable
+name (e.g. for projects with deeply nested or unusual root structures). The function
+default makes the common case require zero configuration.
+
+This change makes knayawp's own `server-start` path (branch 2) correct and
+per-project regardless of launch method. It is defense-in-depth: it does not, by
+itself, "enable the daemon model" — a daemon's isolation is provided by its
+`--daemon=NAME` and the defcustom is not reached in that code path.
 
 ## Consequences
 
 **Good:**
 - Each concurrently-running knayawp Emacs instance owns a distinct server socket,
-  satisfying P12.
-- `emacsclient` from each Claude panel routes edit temp files to its own Emacs — the
-  dogfooding model works correctly with multiple projects open simultaneously.
+  satisfying P12 for the non-daemon launch path.
+- `emacsclient` from each Claude panel routes edit temp files to its own Emacs —
+  regardless of launch method.
 - Single-instance users who never set the option get the auto-derived name
   `"knayawp-<project>"`, which is a strict improvement over the shared `"knayawp"`.
 - The `defcustom` override path keeps isolated-profile `init.el` files simple: set a
@@ -92,6 +115,15 @@ configuration.
 - with-editor reads `server-name`; `knayawp--ensure-editor-server` already sets
   `server-name` after starting the server (see existing code), so git rebase-i and
   other with-editor flows continue to work without change.
+
+**Interaction with the daemon model — important for implementers:**
+In the daemon model, branch 1 of `knayawp--ensure-editor-server` wins and the
+`knayawp-editor-server-name` defcustom is not consulted. Server identity in the daemon
+model is provided entirely by the `--daemon=knayawp-<project>` name passed at launch.
+To guarantee per-instance isolation when running multiple daemons, the launcher
+**must** name each daemon `knayawp-<project>` (or any distinct name per instance).
+The defcustom is relevant only on the non-daemon path; it is defense-in-depth rather
+than the enabler of daemon isolation.
 
 **Trade-offs:**
 - `knayawp--editor-server-name` is currently a `defconst`; changing it to a

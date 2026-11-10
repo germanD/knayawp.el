@@ -129,12 +129,18 @@ socket. Each instance must start (or reuse) a server with a name that is unique 
 instance, so that the `EDITOR=emacsclient -s <socket>` variable injected into each
 Claude terminal panel routes edit temp files exclusively to its own Emacs.
 
-**Why:** When two instances share the same server name, the second instance either
-fails to start its server (socket already owned) or silently steals the socket from the
-first. In either case, `emacsclient` calls from project A's Claude panel may be handled
-by project B's Emacs — a silent, hard-to-diagnose correctness failure. This invariant
-is the enabling prerequisite for running knayawp in the per-project daemon model (see
-spec.md "Installation & Dogfooding" and ADR-006).
+**Why:** When two instances share the same server name under the same
+`server-socket-dir`, the second instance either fails to start its server (socket
+already owned) or silently steals the socket from the first. In either case,
+`emacsclient` calls from project A's Claude panel may be handled by project B's Emacs
+— a silent, hard-to-diagnose correctness failure. This invariant must hold regardless
+of launch method. In the **daemon model**, it is satisfied by the per-daemon
+`--daemon=knayawp-<project>` name: the daemon starts its own server before knayawp
+runs, so `knayawp--ensure-editor-server` reuses that server via its branch-1 path and
+the shared constant is never reached. In the **non-daemon case** (multiple plain
+`emacs` instances), it is satisfied by the `knayawp-editor-server-name` defcustom
+(ADR-006), which replaces the shared constant in branch 2 with a per-project derived
+name. See spec.md "Installation & Dogfooding" for the dogfood launcher pattern.
 
 **Mechanism:** `knayawp-editor-server-name` (a `defcustom` accepting a string or
 zero-argument function) must resolve to a name that is unique across all running
@@ -144,7 +150,10 @@ distinct root directory names. `knayawp--ensure-editor-server` resolves and cach
 name at server-start time, then uses the cached value for subsequent `emacsclient`
 invocations from the same Claude terminal buffer.
 
-**Current violation:** the existing code uses `(defconst knayawp--editor-server-name
-"knayawp" ...)` — a single global constant shared by all instances. This violates P12
-and must be replaced with the `defcustom` described in ADR-006. The violation is
-tracked as a code issue for the v0.1.7 milestone.
+**Current violation (non-daemon path):** the existing code uses `(defconst
+knayawp--editor-server-name "knayawp" ...)` — a single global constant used in
+`knayawp--ensure-editor-server` branch 2. When two or more plain `emacs` instances run
+concurrently and share a `server-socket-dir`, this constant causes both to attempt to
+own the same socket, violating P12. The daemon model is unaffected (branch 1 wins
+there). The violation must be fixed by replacing the constant with the `defcustom`
+described in ADR-006. Tracked as a code issue for the v0.1.7 milestone.

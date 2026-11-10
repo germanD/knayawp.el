@@ -486,18 +486,37 @@ Each running knayawp instance must own a **distinct Emacs server socket** so tha
 routes edit temp files to its own Emacs and not to a sibling instance. This is a
 correctness requirement — see property P12 and ADR-006.
 
+How the invariant is satisfied depends on the launch method:
+
+**Daemon model** (`emacs --daemon=knayawp-<project>`): the daemon starts its own Emacs
+server named `knayawp-<project>` at boot, before knayawp runs. When
+`knayawp--ensure-editor-server` is called, it detects the live server and reuses it
+(branch 1) — it does not start a new one and never reads `knayawp-editor-server-name`.
+The per-instance identity is provided entirely by the `--daemon=NAME` argument. The
+dogfood launcher therefore **must** name each daemon `knayawp-<project>` (or any name
+distinct per project) to get isolation between concurrent instances. This is reflected
+in the launch pattern shown above.
+
+**Non-daemon case** (multiple plain `emacs` instances, e.g. `test/run-prod.sh`): no
+server is running at startup, so `knayawp--ensure-editor-server` reaches branch 2 and
+calls `server-start`. Without a fix, the hardcoded constant `"knayawp"` would cause all
+instances to collide on the same socket. The `knayawp-editor-server-name` defcustom
+(see below) fixes this path.
+
 **`knayawp-editor-server-name`** is a `defcustom` that accepts either a string or a
 zero-argument function returning a string. The default is a function that derives the
 name from the current project root (e.g. project root `…/myapp/` → server name
-`"knayawp-myapp"`), falling back to `"knayawp"` when no project is current.
+`"knayawp-myapp"`), falling back to `"knayawp"` when no project is current. This
+governs `knayawp--ensure-editor-server` branch 2 (the non-daemon path) and is
+defense-in-depth for any launch method that does not pre-start a server.
 
-For the isolated-profile dogfooding setup, the profile `init.el` should set this to a
-fixed string matching the daemon name:
+For the isolated-profile dogfooding setup, the profile `init.el` may still set this to
+a fixed string as a belt-and-suspenders measure, but the primary isolation lever in the
+daemon model is the `--daemon=knayawp-<project>` name, not this defcustom:
 
 ```elisp
 (setq knayawp-editor-server-name "knayawp-myproject")
 ```
 
-This is the simplest way to guarantee uniqueness when multiple profiles are running
-concurrently, especially if two projects share the same directory name under different
-parent paths.
+This is most useful when two projects share the same directory name under different
+parent paths and the auto-derived name would collide.
