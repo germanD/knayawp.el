@@ -2392,7 +2392,7 @@ Slashes and whitespace runs collapse to a single hyphen so the result is a
 valid `server-name' usable as a socket filename.  Return \"knayawp\" when
 NAME reduces to the empty string."
   (let ((clean (replace-regexp-in-string "[/[:space:]]+" "-" name)))
-    (if (string-empty-p clean) "knayawp" clean)))
+    (if (string= clean "") "knayawp" clean)))
 
 (defun knayawp--default-editor-server-name ()
   "Return a per-project Emacs server name, or \"knayawp\" fallback.
@@ -2405,7 +2405,7 @@ single-instance compatibility."
     (if root
         (let* ((dir (directory-file-name (expand-file-name root)))
                (base (file-name-nondirectory dir)))
-          (if (string-empty-p base)
+          (if (string= base "")
               "knayawp"
             (knayawp--sanitize-server-name (concat "knayawp-" base))))
       "knayawp")))
